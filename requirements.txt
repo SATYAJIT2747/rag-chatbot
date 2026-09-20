@@ -1,0 +1,31 @@
+# Core LangChain & Chunking
+langchain
+langchain-community
+langchain-core
+langchain-google-genai
+langchain-huggingface
+langchain-text-splitters
+python-dotenv
+pymupdf
+tabulate
+pillow
+
+# Hardware & Acceleration
+torch
+
+# Embeddings, Vector Store & Reranking
+sentence-transformers
+faiss-cpu
+rank-bm25
+transformers
+accelerate
+
+# Evaluation & Metrics
+pandas
+numpy
+scikit-learn
+tqdm
+
+# Interactive Web Application
+streamlit
+plotly
