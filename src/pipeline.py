@@ -9,6 +9,7 @@ from .retrieval import dense_retrieve, bm25_retrieve, hybrid_retrieve, rewrite_q
 from .generation import build_context, generate_answer, format_cited_response
 from .caching import RAGCacheManager, compute_doc_hash
 from .metrics import MetricsTracker, calculate_llm_cost
+from .guardrails import RAGGuardrailsManager
 
 try:
     from langsmith import traceable
@@ -39,6 +40,7 @@ class RAGPipeline:
         metrics_path = getattr(config, "metrics_db_path", "artifacts/rag_metrics.db")
         self.cache_manager = RAGCacheManager(db_path=cache_path)
         self.metrics_tracker = MetricsTracker(db_path=metrics_path)
+        self.guardrails = RAGGuardrailsManager(config=config)
 
     @classmethod
     def from_defaults(cls, config: Optional[RAGConfig] = None, force_rebuild: bool = False) -> "RAGPipeline":
@@ -86,6 +88,62 @@ class RAGPipeline:
         pricing_map = getattr(self.config, "model_pricing", None)
 
         run_tree = get_current_run_tree()
+
+        # ---------------------------------------------------------
+        # 0. INPUT GUARDRAILS CHECK (Cheap Checks First)
+        # ---------------------------------------------------------
+        input_valid, reject_msg, status_code = self.guardrails.check_input(query)
+        if not input_valid:
+            latency_ms = round((time.time() - t_start) * 1000.0, 2)
+            if run_tree:
+                try:
+                    tag_name = "prompt-injection" if status_code == "blocked_injection" else "length-exceeded"
+                    run_tree.add_tags(["pdf-rag", "guardrail", "input-blocked", tag_name])
+                    run_tree.add_metadata({
+                        "document_id": document_id,
+                        "model_name": model_name,
+                        "guardrail_status": status_code,
+                        "guardrail_blocked": True,
+                        "prompt_version": prompt_version,
+                        "user_id": user_id,
+                        "llm_skipped": True
+                    })
+                except Exception:
+                    pass
+
+            # Log metrics for blocked request
+            self.metrics_tracker.log_request(
+                document_id=document_id,
+                user_id=user_id,
+                model_name=model_name,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=latency_ms,
+                retrieval_latency_ms=0.0,
+                llm_latency_ms=0.0,
+                computed_cost_usd=0.0,
+                cache_hit=False,
+                cache_type="miss",
+                request_category="pdf_qa",
+                num_retrieved_chunks=0,
+                token_count_type="actual",
+                guardrail_status=status_code,
+                grounding_status="skipped"
+            )
+
+            res = format_cited_response(
+                query=query,
+                rewritten_query=None,
+                answer=reject_msg,
+                retrieved_docs=[],
+                latency_breakdown={"Total Latency (sec)": round(latency_ms / 1000.0, 3)},
+                debug_payload={"guardrail_blocked": True, "status_code": status_code}
+            )
+            res["cache_type"] = "miss"
+            res["cache_hit"] = False
+            res["guardrail_blocked"] = True
+            res["guardrail_status"] = status_code
+            return res
 
         query_emb = None
 
@@ -286,7 +344,64 @@ class RAGPipeline:
         else:
             final_docs = candidate_docs[:k_fin]
             
-        # 3d. Context Construction
+        retrieval_total_ms = round(ret_ms + rerank_ms + qr_ms, 2)
+
+        # ---------------------------------------------------------
+        # 3d. PDF SCOPE GUARDRAIL CHECK (Reuses Retrieved Results)
+        # ---------------------------------------------------------
+        in_scope, scope_msg = self.guardrails.check_scope(final_docs, debug_info)
+        if not in_scope:
+            total_sec = round(time.time() - t_start, 3)
+            total_ms = round(total_sec * 1000.0, 2)
+            if run_tree:
+                try:
+                    run_tree.add_tags(["pdf-rag", "guardrail", "out-of-scope"])
+                    run_tree.add_metadata({
+                        "document_id": document_id,
+                        "model_name": model_name,
+                        "guardrail_status": "blocked_scope",
+                        "guardrail_blocked": True,
+                        "prompt_version": prompt_version,
+                        "user_id": user_id,
+                        "llm_skipped": True
+                    })
+                except Exception:
+                    pass
+
+            self.metrics_tracker.log_request(
+                document_id=document_id,
+                user_id=user_id,
+                model_name=model_name,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=total_ms,
+                retrieval_latency_ms=retrieval_total_ms,
+                llm_latency_ms=0.0,
+                computed_cost_usd=0.0,
+                cache_hit=False,
+                cache_type="miss",
+                request_category="pdf_qa",
+                num_retrieved_chunks=len(final_docs),
+                token_count_type="actual",
+                guardrail_status="blocked_scope",
+                grounding_status="skipped"
+            )
+
+            res = format_cited_response(
+                query=query,
+                rewritten_query=rewritten_q,
+                answer=scope_msg,
+                retrieved_docs=final_docs,
+                latency_breakdown={"Total Latency (sec)": total_sec},
+                debug_payload={"guardrail_blocked": True, "status_code": "blocked_scope"}
+            )
+            res["cache_type"] = "miss"
+            res["cache_hit"] = False
+            res["guardrail_blocked"] = True
+            res["guardrail_status"] = "blocked_scope"
+            return res
+
+        # 3e. Context Construction
         context = build_context(
             retrieved_chunks=final_docs,
             page_map=self.page_map,
@@ -295,7 +410,7 @@ class RAGPipeline:
         )
         debug_info["context_used"] = context
         
-        # 3e. Generation
+        # 3f. Generation
         gen_res = generate_answer(
             query=query,
             context=context,
@@ -305,10 +420,28 @@ class RAGPipeline:
         )
         gen_sec = gen_res["latency_sec"]
         llm_ms = round(gen_sec * 1000.0, 2)
-        
+        raw_answer = gen_res["answer"]
+
+        # ---------------------------------------------------------
+        # 3g. OUTPUT GROUNDING VALIDATION
+        # ---------------------------------------------------------
+        grounding_res = self.guardrails.check_output_grounding(query, context, raw_answer)
+        final_answer = raw_answer
+        guardrail_status = "allowed"
+        grounding_status = "grounded"
+
+        if not grounding_res["grounded"]:
+            final_answer = "The provided document does not contain enough information to answer this."
+            guardrail_status = "blocked_ungrounded"
+            grounding_status = "ungrounded"
+            if run_tree:
+                try:
+                    run_tree.add_tags(["pdf-rag", "guardrail", "grounding-fail"])
+                except Exception:
+                    pass
+
         total_sec = round(time.time() - t_start, 3)
         total_ms = round(total_sec * 1000.0, 2)
-        retrieval_total_ms = round(ret_ms + rerank_ms + qr_ms, 2)
         
         input_tokens = gen_res.get("input_tokens", 0)
         output_tokens = gen_res.get("output_tokens", 0)
@@ -332,7 +465,7 @@ class RAGPipeline:
         formatted_res = format_cited_response(
             query=query,
             rewritten_query=rewritten_q,
-            answer=gen_res["answer"],
+            answer=final_answer,
             retrieved_docs=final_docs,
             latency_breakdown=latency_breakdown,
             debug_payload=debug_info
@@ -353,11 +486,13 @@ class RAGPipeline:
             cache_type="miss",
             request_category="pdf_qa",
             num_retrieved_chunks=len(final_docs),
-            token_count_type=token_count_type
+            token_count_type=token_count_type,
+            guardrail_status=guardrail_status,
+            grounding_status=grounding_status
         )
         
-        # Write to Exact & Semantic Cache
-        if enable_cache:
+        # Write to Exact & Semantic Cache ONLY if request was grounded and in scope
+        if enable_cache and guardrail_status == "allowed":
             if query_emb is None:
                 try:
                     embedder = self.registry.load_embedding_model()
@@ -382,5 +517,7 @@ class RAGPipeline:
         formatted_res["input_tokens"] = input_tokens
         formatted_res["output_tokens"] = output_tokens
         formatted_res["cost_usd"] = cost_usd
+        formatted_res["guardrail_status"] = guardrail_status
+        formatted_res["grounding_status"] = grounding_status
         return formatted_res
 

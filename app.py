@@ -214,11 +214,17 @@ with st.sidebar:
     enable_cache_ui = st.checkbox("Enable Response Cache", value=getattr(config, "enable_cache", True))
     config.enable_cache = enable_cache_ui
     
+    with st.expander("🛡️ Guardrail Controls"):
+        config.enable_prompt_injection_guard = st.checkbox("Prompt Injection Guard", value=getattr(config, "enable_prompt_injection_guard", True))
+        config.enable_scope_guard = st.checkbox("PDF Scope Guard", value=getattr(config, "enable_scope_guard", True))
+        config.enable_grounding_guard = st.checkbox("Output Grounding Guard", value=getattr(config, "enable_grounding_guard", True))
+        config.max_query_length = st.number_input("Max Query Length", value=getattr(config, "max_query_length", 2000), step=100)
+
     with st.expander("Advanced K & Cache Settings"):
         retrieval_k = st.slider("Retrieval K (Candidates)", min_value=5, max_value=40, value=20, step=5)
         rerank_k = st.slider("Rerank K (Cross-Encoder)", min_value=5, max_value=20, value=10, step=1)
         final_k = st.slider("Final Context K", min_value=1, max_value=10, value=5, step=1)
-        cache_threshold = st.slider("Semantic Cache Threshold", min_value=0.70, max_value=0.99, value=getattr(config, "semantic_cache_threshold", 0.90), step=0.01)
+        cache_threshold = st.slider("Semantic Cache Threshold", min_value=0.70, max_value=0.99, value=getattr(config, "semantic_cache_threshold", 0.82), step=0.01)
         config.semantic_cache_threshold = cache_threshold
         
     if st.button("🗑️ Clear Chat History", use_container_width=True):
@@ -382,6 +388,18 @@ elif page == "💰 Cost & Usage":
     l1, l2 = st.columns(2)
     l1.metric("Avg LLM Latency", f"{stats['avg_llm_latency_ms']} ms")
     l2.metric("Avg Retrieval Latency", f"{stats['avg_retrieval_latency_ms']} ms")
+
+    # ---------------------------------------------------------
+    # GUARDRAILS SECURITY TELEMETRY
+    # ---------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 🛡️ Guardrails Security & Telemetry")
+    g1, g2, g3, g4, g5 = st.columns(5)
+    g1.metric("Total Blocked", f"{stats.get('total_blocked', 0)}")
+    g2.metric("Length Violations", f"{stats.get('blocked_length', 0)}")
+    g3.metric("Injection Blocks", f"{stats.get('blocked_injection', 0)}")
+    g4.metric("Out-of-Scope Blocks", f"{stats.get('blocked_scope', 0)}")
+    g5.metric("Grounding Failures", f"{stats.get('blocked_ungrounded', 0)}")
 
     # ---------------------------------------------------------
     # RECENT REQUESTS TABLE

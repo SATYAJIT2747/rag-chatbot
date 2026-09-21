@@ -59,9 +59,20 @@ class MetricsTracker:
                         cache_type TEXT NOT NULL,
                         request_category TEXT NOT NULL,
                         num_retrieved_chunks INTEGER NOT NULL,
-                        token_count_type TEXT NOT NULL
+                        token_count_type TEXT NOT NULL,
+                        guardrail_status TEXT DEFAULT 'allowed',
+                        grounding_status TEXT DEFAULT 'skipped'
                     )
                 """)
+                # Handle lightweight column additions for backward compatibility
+                try:
+                    cursor.execute("ALTER TABLE request_metrics ADD COLUMN guardrail_status TEXT DEFAULT 'allowed'")
+                except Exception:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE request_metrics ADD COLUMN grounding_status TEXT DEFAULT 'skipped'")
+                except Exception:
+                    pass
                 conn.commit()
         except Exception as e:
             print(f"[MetricsTracker] Warning: DB Init failed - {e}")
@@ -81,7 +92,9 @@ class MetricsTracker:
         cache_type: str,
         request_category: str = "pdf_qa",
         num_retrieved_chunks: int = 0,
-        token_count_type: str = "actual"
+        token_count_type: str = "actual",
+        guardrail_status: str = "allowed",
+        grounding_status: str = "skipped"
     ):
         now_ts = time.time()
         now_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -96,13 +109,15 @@ class MetricsTracker:
                         timestamp, datetime_str, document_id, user_id, model_name,
                         input_tokens, output_tokens, total_tokens, latency_ms,
                         retrieval_latency_ms, llm_latency_ms, computed_cost_usd,
-                        cache_hit, cache_type, request_category, num_retrieved_chunks, token_count_type
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        cache_hit, cache_type, request_category, num_retrieved_chunks, token_count_type,
+                        guardrail_status, grounding_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     now_ts, now_dt, document_id, user_id, model_name,
                     input_tokens, output_tokens, total_tokens, latency_ms,
                     retrieval_latency_ms, llm_latency_ms, computed_cost_usd,
-                    cache_hit_int, cache_type, request_category, num_retrieved_chunks, token_count_type
+                    cache_hit_int, cache_type, request_category, num_retrieved_chunks, token_count_type,
+                    guardrail_status, grounding_status
                 ))
                 conn.commit()
         except Exception as e:
@@ -126,7 +141,12 @@ class MetricsTracker:
             "avg_total_latency_ms": 0.0,
             "avg_llm_latency_ms": 0.0,
             "avg_retrieval_latency_ms": 0.0,
-            "llm_calls_avoided": 0
+            "llm_calls_avoided": 0,
+            "total_blocked": 0,
+            "blocked_length": 0,
+            "blocked_injection": 0,
+            "blocked_scope": 0,
+            "blocked_ungrounded": 0
         }
         try:
             with self._get_connection() as conn:
@@ -138,6 +158,11 @@ class MetricsTracker:
                         SUM(CASE WHEN cache_type = 'exact' THEN 1 ELSE 0 END) as exact_hits,
                         SUM(CASE WHEN cache_type = 'semantic' THEN 1 ELSE 0 END) as semantic_hits,
                         SUM(CASE WHEN cache_hit = 0 THEN 1 ELSE 0 END) as cache_misses,
+                        SUM(CASE WHEN guardrail_status != 'allowed' THEN 1 ELSE 0 END) as total_blocked,
+                        SUM(CASE WHEN guardrail_status = 'blocked_length' THEN 1 ELSE 0 END) as blocked_length,
+                        SUM(CASE WHEN guardrail_status = 'blocked_injection' THEN 1 ELSE 0 END) as blocked_injection,
+                        SUM(CASE WHEN guardrail_status = 'blocked_scope' THEN 1 ELSE 0 END) as blocked_scope,
+                        SUM(CASE WHEN guardrail_status = 'blocked_ungrounded' THEN 1 ELSE 0 END) as blocked_ungrounded,
                         SUM(input_tokens) as total_input_tokens,
                         SUM(output_tokens) as total_output_tokens,
                         SUM(total_tokens) as total_tokens,
@@ -158,7 +183,7 @@ class MetricsTracker:
                 c_misses = row["cache_misses"] or 0
 
                 # Estimate cost saved: Average cost per live LLM generation * number of avoided calls
-                cursor.execute("SELECT AVG(computed_cost_usd) as avg_miss_cost FROM request_metrics WHERE cache_hit = 0")
+                cursor.execute("SELECT AVG(computed_cost_usd) as avg_miss_cost FROM request_metrics WHERE cache_hit = 0 AND guardrail_status = 'allowed'")
                 miss_row = cursor.fetchone()
                 avg_miss_cost = miss_row["avg_miss_cost"] if miss_row and miss_row["avg_miss_cost"] else 0.0
                 estimated_savings = round(avg_miss_cost * c_hits, 6)
@@ -180,7 +205,12 @@ class MetricsTracker:
                     "avg_total_latency_ms": round(row["avg_total_latency_ms"] or 0.0, 1),
                     "avg_llm_latency_ms": round(row["avg_llm_latency_ms"] or 0.0, 1),
                     "avg_retrieval_latency_ms": round(row["avg_retrieval_latency_ms"] or 0.0, 1),
-                    "llm_calls_avoided": c_hits
+                    "llm_calls_avoided": c_hits,
+                    "total_blocked": row["total_blocked"] or 0,
+                    "blocked_length": row["blocked_length"] or 0,
+                    "blocked_injection": row["blocked_injection"] or 0,
+                    "blocked_scope": row["blocked_scope"] or 0,
+                    "blocked_ungrounded": row["blocked_ungrounded"] or 0
                 }
         except Exception as e:
             print(f"[MetricsTracker] Warning: Summary stats calculation failed - {e}")

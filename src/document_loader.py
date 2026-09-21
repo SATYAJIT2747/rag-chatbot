@@ -155,7 +155,7 @@ def extract_pages(doc: fitz.Document, source_name: str) -> List[Dict[str, Any]]:
     return pages_data
 
 def ocr_page(page_data: Dict[str, Any], doc: fitz.Document) -> Dict[str, Any]:
-    """Applies multimodal vision OCR if page text is missing or sparse."""
+    """Applies local OCR if page text is missing or sparse using PyMuPDF / Tesseract."""
     if page_data.get("content_type") != "scanned_or_sparse" and len(page_data.get("text", "")) > 30:
         page_data["extraction_method"] = "text"
         return page_data
@@ -163,46 +163,15 @@ def ocr_page(page_data: Dict[str, Any], doc: fitz.Document) -> Dict[str, Any]:
     page_num = page_data["page"]
     fitz_page = doc[page_num - 1]
     
-    # 1. Primary OCR: Multimodal Vision OCR via Google GenAI (handles slides, charts, formulas with high fidelity)
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if api_key:
-        try:
-            import base64
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            from langchain_core.messages import HumanMessage
-            
-            pix = fitz_page.get_pixmap(dpi=150)
-            img_bytes = pix.tobytes("png")
-            b64_img = base64.b64encode(img_bytes).decode("utf-8")
-            
-            ocr_llm = ChatGoogleGenerativeAI(
-                model="gemini-flash-lite-latest",
-                google_api_key=api_key,
-                temperature=0.0
-            )
-            
-            msg = HumanMessage(
-                content=[
-                    {"type": "text", "text": "Extract all text, headings, formulas, tables, code snippets, and bullet points from this lecture slide image verbatim into clean markdown format without commentary."},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}}
-                ]
-            )
-            res = ocr_llm.invoke([msg])
-            content = res.content
-            if isinstance(content, list):
-                extracted = "".join([part.get("text", "") if isinstance(part, dict) else str(part) for part in content]).strip()
-            else:
-                extracted = str(content).strip()
-                
-            if len(extracted) > 15:
-                page_data["text"] = extracted
-                page_data["content_type"] = "ocr"
-                page_data["extraction_method"] = "ocr"
-                return page_data
-        except Exception:
-            pass
+    # 1. Local PyMuPDF layout & text fallback
+    raw_text = fitz_page.get_text("text").strip()
+    if len(raw_text) > 20:
+        page_data["text"] = decode_custom_ligatures(raw_text)
+        page_data["content_type"] = "text"
+        page_data["extraction_method"] = "text"
+        return page_data
 
-    # 2. Local OCR Fallback: PyTesseract / RapidOCR (if installed)
+    # 2. Local OCR Fallback: PyTesseract / RapidOCR (if installed locally)
     try:
         import pytesseract
         from PIL import Image

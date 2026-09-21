@@ -56,8 +56,8 @@ def hybrid_retrieve(
             "chunk_id": cid,
             "page": doc.metadata["page"],
             "rrf_score": round(rrf_scores[cid], 5),
-            "dense_rank": dense_rank_map.get(cid, "-"),
-            "bm25_rank": bm25_rank_map.get(cid, "-"),
+            "dense_rank": str(dense_rank_map[cid]) if cid in dense_rank_map else "-",
+            "bm25_rank": str(bm25_rank_map[cid]) if cid in bm25_rank_map else "-",
             "preview": doc.page_content[:90].replace('\n', ' ') + "..."
         })
         

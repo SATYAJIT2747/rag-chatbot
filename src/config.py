@@ -50,6 +50,13 @@ class RAGConfig:
     cache_db_path: str = "artifacts/rag_cache.db"
     metrics_db_path: str = "artifacts/rag_metrics.db"
     
+    # Practical RAG Guardrails
+    max_query_length: int = 2000
+    enable_prompt_injection_guard: bool = True
+    enable_scope_guard: bool = True
+    pdf_scope_threshold: float = -4.0
+    enable_grounding_guard: bool = True
+    
     # Model Pricing (USD per 1,000,000 tokens)
     # Default rates for Gemini Flash Lite & fallback LLMs
     model_pricing: Dict[str, Dict[str, float]] = None
