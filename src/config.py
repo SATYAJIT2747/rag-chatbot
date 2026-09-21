@@ -42,6 +42,27 @@ class RAGConfig:
     # Hardware & Precision
     use_4bit_quantization: bool = False
     device_override: Optional[str] = None
+    
+    # Response Caching & Observability
+    enable_cache: bool = True
+    semantic_cache_threshold: float = 0.82
+    prompt_version: str = "v1.0"
+    cache_db_path: str = "artifacts/rag_cache.db"
+    metrics_db_path: str = "artifacts/rag_metrics.db"
+    
+    # Model Pricing (USD per 1,000,000 tokens)
+    # Default rates for Gemini Flash Lite & fallback LLMs
+    model_pricing: Dict[str, Dict[str, float]] = None
+    
+    def __post_init__(self):
+        if self.model_pricing is None:
+            self.model_pricing = {
+                "gemini-flash-lite-latest": {"input_per_1m": 0.075, "output_per_1m": 0.30},
+                "gemini-1.5-flash": {"input_per_1m": 0.075, "output_per_1m": 0.30},
+                "gemini-1.5-pro": {"input_per_1m": 1.25, "output_per_1m": 5.00},
+                "Qwen/Qwen2.5-1.5B-Instruct": {"input_per_1m": 0.00, "output_per_1m": 0.00},
+                "default": {"input_per_1m": 0.10, "output_per_1m": 0.40}
+            }
 
 def get_system_device_info(config: Optional[RAGConfig] = None) -> Dict[str, Any]:
     info = {

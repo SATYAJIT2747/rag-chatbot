@@ -175,7 +175,7 @@ with st.sidebar:
     # Main Navigation
     page = st.radio(
         "Navigation",
-        ["💬 Chat", "🔍 Retrieval Debug", "📊 Evaluation", "📈 Analytics", "⚙️ Settings"],
+        ["💬 Chat", "💰 Cost & Usage", "🔍 Retrieval Debug", "📊 Evaluation", "📈 Analytics", "⚙️ Settings"],
         index=0
     )
     
@@ -200,7 +200,7 @@ with st.sidebar:
             f"**Pages**: {index_data['num_pages']} | **Chunks**: {index_data['num_chunks']}")
     
     st.markdown("---")
-    st.subheader("⚙️ Retrieval Parameters")
+    st.subheader("⚙️ Retrieval & Cache Settings")
     
     mode_selection = st.radio(
         "Retrieval Mode",
@@ -211,10 +211,15 @@ with st.sidebar:
     use_reranker = st.checkbox("Cross-Encoder Reranker", value=True)
     use_parent_ctx = st.checkbox("Parent Context", value=True)
     
-    with st.expander("Advanced K Settings"):
+    enable_cache_ui = st.checkbox("Enable Response Cache", value=getattr(config, "enable_cache", True))
+    config.enable_cache = enable_cache_ui
+    
+    with st.expander("Advanced K & Cache Settings"):
         retrieval_k = st.slider("Retrieval K (Candidates)", min_value=5, max_value=40, value=20, step=5)
         rerank_k = st.slider("Rerank K (Cross-Encoder)", min_value=5, max_value=20, value=10, step=1)
         final_k = st.slider("Final Context K", min_value=1, max_value=10, value=5, step=1)
+        cache_threshold = st.slider("Semantic Cache Threshold", min_value=0.70, max_value=0.99, value=getattr(config, "semantic_cache_threshold", 0.90), step=0.01)
+        config.semantic_cache_threshold = cache_threshold
         
     if st.button("🗑️ Clear Chat History", use_container_width=True):
         st.session_state.messages = []
@@ -234,6 +239,14 @@ if page == "💬 Chat":
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if msg.get("cache_type"):
+                ctype = msg["cache_type"]
+                if ctype == "exact":
+                    st.caption("⚡ **Exact Cache Hit** (0ms LLM, $0.000)")
+                elif ctype == "semantic":
+                    st.caption("🧠 **Semantic Cache Hit** (0ms LLM, $0.000)")
+                else:
+                    st.caption("🔥 **Live LLM Generation**")
             if msg.get("citations"):
                 citation_html = "".join([f'<span class="citation-badge">Page {p}</span>' for p in msg["citations"]])
                 st.markdown(f"**Citations:** {citation_html}", unsafe_allow_html=True)
@@ -262,7 +275,7 @@ if page == "💬 Chat":
             ret_mode = "hybrid" if is_hybrid else ("dense" if is_dense else "bm25")
             use_qr = "Query Rewrite" in mode_selection
             
-            status_container.write("🔍 Retrieving candidate chunks (Dense + Sparse RRF)...")
+            status_container.write("🔍 Checking Exact & Semantic Cache...")
             time.sleep(0.05)
             
             if use_reranker:
@@ -282,10 +295,23 @@ if page == "💬 Chat":
                     final_k=final_k
                 )
                 
-                status_container.update(label="✅ Answer Generated!", state="complete", expanded=False)
+                cache_status = response.get("cache_type", "miss")
+                if cache_status == "exact":
+                    status_container.update(label="⚡ Exact Cache Hit!", state="complete", expanded=False)
+                elif cache_status == "semantic":
+                    status_container.update(label="🧠 Semantic Cache Hit!", state="complete", expanded=False)
+                else:
+                    status_container.update(label="✅ Answer Generated!", state="complete", expanded=False)
                 
                 # Display Assistant Answer
                 st.markdown(response["answer"])
+                
+                if cache_status == "exact":
+                    st.caption("⚡ **Exact Cache Hit** (0ms LLM, $0.000)")
+                elif cache_status == "semantic":
+                    st.caption("🧠 **Semantic Cache Hit** (0ms LLM, $0.000)")
+                else:
+                    st.caption("🔥 **Live LLM Generation**")
                 
                 if response["citations"]:
                     citation_html = "".join([f'<span class="citation-badge">Page {p}</span>' for p in response["citations"]])
@@ -306,7 +332,8 @@ if page == "💬 Chat":
                     "role": "assistant",
                     "content": response["answer"],
                     "citations": response["citations"],
-                    "sources": response["sources"]
+                    "sources": response["sources"],
+                    "cache_type": cache_status
                 })
                 st.session_state.latest_debug_payload = {
                     "original_query": user_query,
@@ -322,6 +349,112 @@ if page == "💬 Chat":
             except Exception as e:
                 status_container.update(label="❌ Pipeline Error", state="error", expanded=True)
                 st.error(f"⚠️ Error executing query: {str(e)}")
+
+# ---------------------------------------------------------
+# 2. COST & USAGE PAGE
+# ---------------------------------------------------------
+elif page == "💰 Cost & Usage":
+    st.markdown('<div class="main-header">💰 Cost & Usage Observability</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Production telemetry tracking response caching, token usage, LLM costs, and latency metrics.</div>', unsafe_allow_html=True)
+    
+    stats = pipeline.metrics_tracker.get_summary_stats(getattr(config, "model_pricing", None))
+    
+    # ---------------------------------------------------------
+    # TOP METRICS DASHBOARD
+    # ---------------------------------------------------------
+    st.markdown("### 📊 Key Performance Indicators")
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Total Requests", f"{stats['total_requests']}")
+    m2.metric("Cache Hit Rate", f"{stats['cache_hit_rate']}%")
+    m3.metric("Exact Cache Hits", f"{stats['exact_hits']}")
+    m4.metric("Semantic Cache Hits", f"{stats['semantic_hits']}")
+    m5.metric("Cache Misses", f"{stats['cache_misses']}")
+    
+    st.markdown("---")
+    m6, m7, m8, m9, m10 = st.columns(5)
+    m6.metric("Total Input Tokens", f"{stats['total_input_tokens']:,}")
+    m7.metric("Total Output Tokens", f"{stats['total_output_tokens']:,}")
+    m8.metric("Total LLM Cost", f"${stats['total_cost_usd']:.4f}")
+    m9.metric("Est. Cost Saved", f"${stats['estimated_cost_saved_usd']:.4f}", delta=f"{stats['llm_calls_avoided']} calls avoided")
+    m10.metric("Avg Total Latency", f"{stats['avg_total_latency_ms']} ms")
+    
+    st.markdown("---")
+    l1, l2 = st.columns(2)
+    l1.metric("Avg LLM Latency", f"{stats['avg_llm_latency_ms']} ms")
+    l2.metric("Avg Retrieval Latency", f"{stats['avg_retrieval_latency_ms']} ms")
+
+    # ---------------------------------------------------------
+    # RECENT REQUESTS TABLE
+    # ---------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 📋 Recent Requests Telemetry")
+    recent = pipeline.metrics_tracker.get_recent_requests(limit=50)
+    if recent:
+        df_recent = pd.DataFrame(recent)
+        df_display = pd.DataFrame({
+            "Timestamp": df_recent["datetime_str"],
+            "Model": df_recent["model_name"],
+            "PDF Document": df_recent["document_id"],
+            "Cache Status": df_recent["cache_type"].str.upper(),
+            "Input Tokens": df_recent["input_tokens"],
+            "Output Tokens": df_recent["output_tokens"],
+            "Total Tokens": df_recent["total_tokens"],
+            "Latency (ms)": df_recent["latency_ms"].round(1),
+            "Cost ($)": df_recent["computed_cost_usd"].apply(lambda x: f"${x:.5f}"),
+            "Category": df_recent["request_category"]
+        })
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+    else:
+        st.info("No request metrics recorded yet. Ask a question on the **Chat** page to log telemetry!")
+
+    # ---------------------------------------------------------
+    # CHARTS & VISUALIZATIONS
+    # ---------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 📈 Usage & Cost Breakdown")
+    c_chart1, c_chart2 = st.columns(2)
+    
+    with c_chart1:
+        st.markdown("#### Cache Hit vs Miss Distribution")
+        if stats["total_requests"] > 0:
+            df_pie = pd.DataFrame([
+                {"Category": "Exact Cache Hit", "Count": stats["exact_hits"]},
+                {"Category": "Semantic Cache Hit", "Count": stats["semantic_hits"]},
+                {"Category": "Cache Miss (LLM Call)", "Count": stats["cache_misses"]}
+            ])
+            fig_pie = px.pie(
+                df_pie,
+                values="Count",
+                names="Category",
+                color="Category",
+                hole=0.4,
+                color_discrete_map={
+                    "Exact Cache Hit": "#10B981",
+                    "Semantic Cache Hit": "#06B6D4",
+                    "Cache Miss (LLM Call)": "#F59E0B"
+                }
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.caption("No requests available for distribution chart.")
+
+    with c_chart2:
+        st.markdown("#### Cumulative LLM Cost ($)")
+        if recent:
+            df_trend = pd.DataFrame(recent).iloc[::-1].copy()
+            df_trend["Cumulative Cost ($)"] = df_trend["computed_cost_usd"].cumsum()
+            fig_cost = px.line(
+                df_trend,
+                x="datetime_str",
+                y="Cumulative Cost ($)",
+                markers=True,
+                title="LLM Cost Accumulation Over Time",
+                color_discrete_sequence=["#6366F1"]
+            )
+            fig_cost.update_layout(xaxis_title="Time", yaxis_title="Cost ($)")
+            st.plotly_chart(fig_cost, use_container_width=True)
+        else:
+            st.caption("No cost trend available yet.")
 
 # ---------------------------------------------------------
 # 2. RETRIEVAL DEBUG PAGE

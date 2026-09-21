@@ -53,9 +53,8 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
-# Generated Model & Retrieval Artifacts (FAISS index, BM25 pickle, Reports)
-artifacts/faiss/
-artifacts/bm25/
-artifacts/report/
+# Generated Model & Retrieval Artifacts (FAISS index, BM25 pickle, Reports, SQLite DBs)
+artifacts/
 *.faiss
 *.pkl
+*.db

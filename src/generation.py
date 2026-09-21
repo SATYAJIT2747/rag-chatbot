@@ -70,6 +70,10 @@ Answer:"""
         {"role": "user", "content": user_message}
     ]
     
+    input_tokens = 0
+    output_tokens = 0
+    token_count_type = "estimated"
+    
     if hasattr(llm, "invoke") and tokenizer is None:
         messages = [
             ("system", system_prompt),
@@ -81,9 +85,29 @@ Answer:"""
             answer = "".join([part.get("text", "") if isinstance(part, dict) else str(part) for part in content]).strip()
         else:
             answer = str(content).strip()
+            
+        # Try extracting actual token usage from response metadata
+        usage = getattr(response, "usage_metadata", None)
+        if isinstance(usage, dict) and "input_tokens" in usage and "output_tokens" in usage:
+            input_tokens = usage["input_tokens"]
+            output_tokens = usage["output_tokens"]
+            token_count_type = "actual"
+        elif hasattr(response, "response_metadata") and isinstance(response.response_metadata, dict):
+            token_usage = response.response_metadata.get("token_usage", {})
+            if "prompt_tokens" in token_usage:
+                input_tokens = token_usage.get("prompt_tokens", 0)
+                output_tokens = token_usage.get("completion_tokens", 0)
+                token_count_type = "actual"
+                
+        if input_tokens == 0:
+            full_prompt_text = system_prompt + "\n" + user_message
+            input_tokens = max(1, len(full_prompt_text) // 4)
+            output_tokens = max(1, len(answer) // 4)
+            token_count_type = "estimated"
     else:
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = tokenizer(prompt, return_tensors="pt").to(registry.device)
+        input_tokens = int(inputs["input_ids"].shape[1])
         
         with torch.no_grad():
             output_ids = llm.generate(
@@ -95,13 +119,18 @@ Answer:"""
             )
             
         new_tokens = output_ids[0][inputs["input_ids"].shape[1]:]
+        output_tokens = int(len(new_tokens))
+        token_count_type = "actual"
         answer = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
         
     latency_sec = time.time() - t0
     
     return {
         "answer": answer,
-        "latency_sec": round(latency_sec, 3)
+        "latency_sec": round(latency_sec, 3),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "token_count_type": token_count_type
     }
 
 def extract_citations(answer_text: str) -> List[int]:
