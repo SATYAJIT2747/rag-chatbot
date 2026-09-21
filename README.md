@@ -6,6 +6,10 @@ A complete, production-ready Advanced Retrieval-Augmented Generation (RAG) syste
 
 ## 🏛️ System Architecture
 
+![Advanced PDF RAG System Architecture](docs/architecture.png)
+
+> 📖 For comprehensive technical specifications, deep-dive component descriptions, and subsystem flows, see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ```
                                 USER QUERY
                                     │
@@ -83,6 +87,10 @@ pdf_rag_bot/
 ├── .env.example                   # API & LangSmith configuration template
 ├── main.py                        # Single-command CLI runner & evaluation benchmark
 ├── app.py                         # 6-Page interactive Streamlit Web UI
+│
+├── docs/
+│   ├── ARCHITECTURE.md            # Detailed system architecture specification
+│   └── architecture.png           # High-resolution system architecture diagram
 │
 ├── data/
 │   └── sample_document.pdf        # Knowledge base PDF
