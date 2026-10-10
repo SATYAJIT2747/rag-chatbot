@@ -42,7 +42,8 @@ def validate_pdf_scope(
             scores = []
             for item in rerank_items:
                 if isinstance(item, dict):
-                    score = item.get("rerank_score") if item.get("rerank_score") is not None else item.get("score")
+                    # rerank_documents() writes "reranker_score"; the other keys are accepted for older payloads
+                    score = next((item[k] for k in ("reranker_score", "rerank_score", "score") if item.get(k) is not None), None)
                     if score is not None:
                         try:
                             scores.append(float(score))

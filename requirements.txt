@@ -9,6 +9,7 @@ python-dotenv
 pymupdf
 tabulate
 pillow
+rapidocr-onnxruntime
 
 # Hardware & Acceleration
 torch

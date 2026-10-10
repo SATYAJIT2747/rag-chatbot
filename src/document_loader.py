@@ -1,6 +1,8 @@
 import os
 import re
 import json
+import hashlib
+import unicodedata
 from typing import List, Dict, Any, Tuple
 import pymupdf as fitz
 from langchain_core.documents import Document
@@ -154,6 +156,43 @@ def extract_pages(doc: fitz.Document, source_name: str) -> List[Dict[str, Any]]:
         })
     return pages_data
 
+_rapidocr_engine = None
+
+def rapidocr_page_text(page: fitz.Page, dpi: int = 150) -> str:
+    """OCRs a rendered page with RapidOCR (pip-only, no system binary) and rebuilds reading order."""
+    global _rapidocr_engine
+    from rapidocr_onnxruntime import RapidOCR
+    if _rapidocr_engine is None:
+        _rapidocr_engine = RapidOCR()
+
+    result, _ = _rapidocr_engine(page.get_pixmap(dpi=dpi).tobytes("png"))
+    if not result:
+        return ""
+
+    # Each item is (box, text, confidence); box is four [x, y] corners starting top-left
+    boxes = sorted(result, key=lambda r: (r[0][0][1], r[0][0][0]))
+    lines, current, current_y, current_h = [], [], None, 0.0
+    for box, text, _ in boxes:
+        y, h = box[0][1], box[3][1] - box[0][1]
+        if current and abs(y - current_y) > 0.6 * max(h, current_h):
+            lines.append(current)
+            current = []
+        if not current:
+            current_y, current_h = y, h
+        current.append((box[0][0], text))
+    if current:
+        lines.append(current)
+    page_text = "\n".join(" ".join(text for _, text in sorted(line)) for line in lines).strip()
+    # The OCR model emits some full-width punctuation; fold it back to ASCII
+    return unicodedata.normalize("NFKC", page_text)
+
+def ocr_cache_path(pdf_path: str) -> str:
+    """OCR is slow (seconds per page), so its output is kept on disk keyed by the PDF's content."""
+    with open(pdf_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()[:16]
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(project_root, "artifacts", "ocr_cache", f"{digest}.json")
+
 def ocr_page(page_data: Dict[str, Any], doc: fitz.Document) -> Dict[str, Any]:
     """Applies local OCR if page text is missing or sparse using PyMuPDF / Tesseract."""
     if page_data.get("content_type") != "scanned_or_sparse" and len(page_data.get("text", "")) > 30:
@@ -176,11 +215,11 @@ def ocr_page(page_data: Dict[str, Any], doc: fitz.Document) -> Dict[str, Any]:
         import pytesseract
         from PIL import Image
         import io
-        
+
         pix = fitz_page.get_pixmap(dpi=150)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
         ocr_text = pytesseract.image_to_string(img).strip()
-        
+
         if len(ocr_text) > 20:
             page_data["text"] = ocr_text
             page_data["content_type"] = "ocr"
@@ -188,7 +227,17 @@ def ocr_page(page_data: Dict[str, Any], doc: fitz.Document) -> Dict[str, Any]:
             return page_data
     except Exception:
         pass
-        
+
+    try:
+        ocr_text = rapidocr_page_text(fitz_page)
+        if len(ocr_text) > 20:
+            page_data["text"] = ocr_text
+            page_data["content_type"] = "ocr"
+            page_data["extraction_method"] = "ocr"
+            return page_data
+    except Exception:
+        pass
+
     page_data["content_type"] = "ocr_skipped"
     page_data["extraction_method"] = "text"
     if len(page_data.get("text", "")) == 0:
@@ -227,7 +276,37 @@ def load_and_preprocess_pdf(pdf_path: str) -> Tuple[List[Document], Dict[int, st
     ensure_sample_pdf(pdf_path)
     fitz_doc = load_pdf(pdf_path)
     pages_data = extract_pages(fitz_doc, pdf_path)
-    processed_pages = [ocr_page(p, fitz_doc) for p in pages_data]
+
+    cache_path = ocr_cache_path(pdf_path)
+    ocr_cache: Dict[str, str] = {}
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, encoding="utf-8") as f:
+                ocr_cache = json.load(f)
+        except Exception:
+            ocr_cache = {}
+
+    processed_pages = []
+    cache_dirty = False
+    for p in pages_data:
+        key = str(p["page"])
+        if key in ocr_cache:
+            p.update({"text": ocr_cache[key], "content_type": "ocr", "extraction_method": "ocr"})
+        else:
+            p = ocr_page(p, fitz_doc)
+            if p.get("extraction_method") == "ocr":
+                ocr_cache[key] = p["text"]
+                cache_dirty = True
+        processed_pages.append(p)
+
+    if cache_dirty:
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(ocr_cache, f, ensure_ascii=False)
+        except Exception:
+            pass
+
     docs = build_documents(processed_pages)
     page_map = build_page_map(docs)
     fitz_doc.close()

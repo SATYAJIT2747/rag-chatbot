@@ -1,0 +1,682 @@
+{
+  "description": "Gold evaluation set for the PDF RAG bot. 35 items: 27 single-document, 1 cross-document, 7 unanswerable. Page numbers are 1-based PDF page indices (same as metadata['page'] from document_loader.extract_pages), not the printed page numbers. key_facts lists what a correct answer must contain; '|' separates accepted alternatives.",
+  "documents": [
+    "N gram.pdf",
+    "build_llm_lect_notes.pdf",
+    "sample_document.pdf"
+  ],
+  "items": [
+    {
+      "id": "ngram-01",
+      "question": "What is the Markov assumption in a bigram language model?",
+      "expected_answer": "It is the assumption that the probability of a word depends only on the previous word, so P(wn | w1:n-1) is approximated by P(wn | wn-1). More generally, Markov models assume the future can be predicted without looking too far into the past; an n-gram looks n-1 words into the past.",
+      "key_facts": [
+        "previous word|preceding word"
+      ],
+      "question_type": "definition",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "expected_pages": [
+        3
+      ]
+    },
+    {
+      "id": "ngram-02",
+      "question": "How is a bigram probability estimated using maximum likelihood estimation?",
+      "expected_answer": "By relative frequency: count the bigram and normalize by the count of the first word, P(wn | wn-1) = C(wn-1 wn) / C(wn-1). The sum of all bigram counts starting with wn-1 equals the unigram count of wn-1.",
+      "key_facts": [
+        "count",
+        "normaliz|divid|relative frequenc|ratio"
+      ],
+      "question_type": "formula",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "expected_pages": [
+        4
+      ]
+    },
+    {
+      "id": "ngram-03",
+      "question": "Using the Berkeley Restaurant Project bigram probabilities, what is the probability of the sentence \"i want english food\"?",
+      "expected_answer": "About 0.000031, computed as P(i|<s>) x P(want|i) x P(english|want) x P(food|english) x P(</s>|food) = 0.25 x 0.33 x 0.0011 x 0.5 x 0.68.",
+      "key_facts": [
+        "0.000031|0.0000308|3.1e-5|3.1 x 10"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "expected_pages": [
+        6
+      ]
+    },
+    {
+      "id": "ngram-04",
+      "question": "How does the infini-gram project compute n-gram probabilities for arbitrary n without huge precomputed count tables?",
+      "expected_answer": "Instead of precomputing n-gram count tables, the infini-gram (∞-gram) project of Liu et al. (2024) computes n-gram probabilities quickly at inference time using an efficient representation called suffix arrays, which allows n-grams of any length over corpora of 5 trillion tokens.",
+      "key_facts": [
+        "suffix array"
+      ],
+      "question_type": "factual",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "expected_pages": [
+        7
+      ]
+    },
+    {
+      "id": "ngram-05",
+      "question": "What is data contamination (training on the test set) and why is it a problem for evaluating a language model?",
+      "expected_answer": "It is when test sentences are included in the training corpus. The model then assigns those sentences an artificially high probability, which biases the probabilities to look too high and causes huge inaccuracies in perplexity.",
+      "key_facts": [
+        "test",
+        "training",
+        "high|inflat|bias"
+      ],
+      "question_type": "conceptual",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "expected_pages": [
+        8
+      ]
+    },
+    {
+      "id": "ngram-06",
+      "question": "What perplexities did unigram, bigram and trigram models get on the Wall Street Journal test set?",
+      "expected_answer": "Unigram 962, bigram 170 and trigram 109. The models were trained on 38 million words of WSJ text and evaluated on a 1.5 million word test set; lower perplexity means a better predictor.",
+      "key_facts": [
+        "962",
+        "170",
+        "109"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "expected_pages": [
+        10
+      ]
+    },
+    {
+      "id": "ngram-07",
+      "question": "How did add-one (Laplace) smoothing change P(to|want) and the count of \"want to\" in the Berkeley Restaurant corpus?",
+      "expected_answer": "P(to|want) dropped from 0.66 unsmoothed to 0.26 smoothed, and the reconstructed count C(want to) dropped from 608 to 238 (a discount of 0.39). The sharp change happens because too much probability mass is moved to the zeros.",
+      "key_facts": [
+        "0.66",
+        "0.26",
+        "608",
+        "238"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "expected_pages": [
+        16
+      ]
+    },
+    {
+      "id": "ngram-08",
+      "question": "How does stupid backoff work and what backoff weight did Brants et al. find worked well?",
+      "expected_answer": "If a higher-order n-gram has a zero count, stupid backoff backs off to the lower-order n-gram multiplied by a fixed, context-independent weight λ, with no discounting, so the result is a score S rather than a true probability distribution. The backoff terminates in the unigram. Brants et al. (2007) found λ = 0.4 worked well.",
+      "key_facts": [
+        "0.4",
+        "lower order|lower-order|back off|backs off|backoff"
+      ],
+      "question_type": "factual",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "expected_pages": [
+        18
+      ]
+    },
+    {
+      "id": "ngram-09",
+      "question": "In the horse race example, what is the entropy when the horses have unequal probabilities compared with when all eight are equally likely?",
+      "expected_answer": "With the unequal distribution (1/2, 1/4, 1/8, 1/16 and four horses at 1/64) the entropy is 2 bits, so a code averaging 2 bits per race is possible. If all eight horses are equally likely (1/8 each) the entropy is 3 bits.",
+      "key_facts": [
+        "2 bits",
+        "3 bits"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "expected_pages": [
+        19
+      ]
+    },
+    {
+      "id": "ngram-10",
+      "question": "Who first proposed the mathematics behind n-grams and what text did he use to test it?",
+      "expected_answer": "Markov (1913), who used what are now called Markov chains (bigrams and trigrams) to predict whether an upcoming letter in Pushkin's Eugene Onegin would be a vowel or a consonant, classifying 20,000 letters as V or C.",
+      "key_facts": [
+        "markov",
+        "onegin"
+      ],
+      "question_type": "factual",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "expected_pages": [
+        21
+      ]
+    },
+    {
+      "id": "llm-01",
+      "question": "How large is the vocabulary of Qwen3.5?",
+      "expected_answer": "Qwen3.5 uses a vocabulary of 248,320 tokens; vocabulary sizes are typically on the order of 10^5.",
+      "key_facts": [
+        "248320"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            2
+          ]
+        }
+      ],
+      "expected_pages": [
+        2
+      ]
+    },
+    {
+      "id": "llm-02",
+      "question": "What is the difference between top-k sampling and top-p (nucleus) sampling, and what is a common top-p setting?",
+      "expected_answer": "Top-k sampling keeps only the k highest-probability tokens and renormalizes over them. Top-p (nucleus) sampling keeps the smallest set of highest-probability tokens whose total probability is at least p and renormalizes over that set. A common choice is p = 0.9 with a temperature in the range 0.7-1.0.",
+      "key_facts": [
+        "0.9",
+        "at least p|cumulative|total probability|smallest set"
+      ],
+      "question_type": "comparison",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "expected_pages": [
+        5
+      ]
+    },
+    {
+      "id": "llm-03",
+      "question": "Why are attention logits divided by the square root of the head dimension?",
+      "expected_answer": "In Vaswani et al. (2017) the scaling factor is c = sqrt(d_h). If query and key coordinates are roughly independent with mean zero and variance 1, their dot product has variance d_h, so without scaling the logits grow with the head dimension, pushing the softmax into a saturated regime with very small gradients. Dividing by sqrt(d_h) keeps the logit variance on the order of one. It is only a heuristic.",
+      "key_facts": [
+        "variance",
+        "gradient|saturat"
+      ],
+      "question_type": "conceptual",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "expected_pages": [
+        7,
+        8
+      ]
+    },
+    {
+      "id": "llm-04",
+      "question": "What is a causal mask in an autoregressive Transformer and how is it defined?",
+      "expected_answer": "It is an attention mask M added to the attention logits before the softmax, with M[t,j] = 0 for j <= t and M[t,j] = -infinity for j > t. The -infinity entries make those attention probabilities exactly zero, so each position depends only on the current and previous positions, which lets the model train on a full sequence in parallel while preserving left-to-right prediction.",
+      "key_facts": [
+        "-inf|-∞|-\\infty|negative infinity|minus infinity",
+        "j > t|j>t|future|later position|subsequent"
+      ],
+      "question_type": "definition",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "expected_pages": [
+        9
+      ]
+    },
+    {
+      "id": "llm-05",
+      "question": "What is the KV cache and why does it speed up autoregressive generation?",
+      "expected_answer": "The KV cache is the collection of cached key and value vectors for all positions up to the current step. Because successive generation steps share prefixes, the keys and values of earlier positions do not need to be recomputed; at each step only the new row k_{t+1}, v_{t+1} is appended. Each attention head keeps its own cache in GPU memory.",
+      "key_facts": [
+        "key",
+        "value",
+        "recomput|reus|cached"
+      ],
+      "question_type": "conceptual",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "expected_pages": [
+        11
+      ]
+    },
+    {
+      "id": "llm-06",
+      "question": "How many experts does DeepSeek-V3 use in each Mixture-of-Experts layer and how many are active per token?",
+      "expected_answer": "DeepSeek-V3 uses 256 routed experts in each MoE layer and activates the top 8 routed experts for each token, in addition to one shared expert that is applied to every token.",
+      "key_facts": [
+        "256",
+        "8",
+        "shared"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "expected_pages": [
+        14
+      ]
+    },
+    {
+      "id": "llm-07",
+      "question": "In supervised finetuning, which tokens does the loss mask include and how is it different from the attention mask?",
+      "expected_answer": "The prompt and answer are concatenated into one sequence, and the loss mask is 0 on prompt tokens and 1 on answer tokens, so the next-token loss is averaged only over answer positions. This is separate from the attention mask: the usual causal attention mask is still used, so answer tokens can attend to the prompt and to earlier answer tokens.",
+      "key_facts": [
+        "prompt",
+        "answer",
+        "causal|attend"
+      ],
+      "question_type": "conceptual",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "expected_pages": [
+        17
+      ]
+    },
+    {
+      "id": "llm-08",
+      "question": "What is the difference between PreNorm and PostNorm Transformer blocks, and which do modern large language models use?",
+      "expected_answer": "In PreNorm, layer normalization is applied before the self-attention and before the MLP, inside the residual branch. In PostNorm, layer normalization is applied after the residual connection. Modern large language models usually use the PreNorm structure, with RMSNorm instead of layer norm.",
+      "key_facts": [
+        "prenorm|pre-norm|pre norm",
+        "rmsnorm|rms norm",
+        "before",
+        "after"
+      ],
+      "question_type": "comparison",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            11,
+            12
+          ]
+        }
+      ],
+      "expected_pages": [
+        11,
+        12
+      ]
+    },
+    {
+      "id": "llm-09",
+      "question": "What is instruction tuning and why does it make models better zero-shot assistants?",
+      "expected_answer": "Instruction tuning is a special case of finetuning in which many tasks, each written as a natural-language instruction with a desired response, are collected and the model is finetuned on the mixture. The goal is to teach the convention that an instruction in the prompt should be followed, so at test time a user can describe a new task in words and the model treats the description as an executable instruction.",
+      "key_facts": [
+        "instruction",
+        "zero-shot|zero shot|new task",
+        "finetun|fine-tun"
+      ],
+      "question_type": "conceptual",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "expected_pages": [
+        18
+      ]
+    },
+    {
+      "id": "rag-01",
+      "question": "What are the default values of k1 and b in BM25 and what does each control?",
+      "expected_answer": "k1 controls term frequency saturation and defaults to 1.2; b controls document length normalization and defaults to 0.75.",
+      "key_facts": [
+        "1.2",
+        "0.75"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "expected_pages": [
+        5
+      ]
+    },
+    {
+      "id": "rag-02",
+      "question": "With k = 60, what Reciprocal Rank Fusion score does a document get if it is ranked #1 in vector search and #5 in BM25?",
+      "expected_answer": "1/(60+1) + 1/(60+5) = 0.0164 + 0.0154 = 0.0318. RRF sums 1/(k + rank) over the rankings, where k (typically 60) prevents the top-ranked result from dominating.",
+      "key_facts": [
+        "0.0318"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "expected_pages": [
+        5
+      ]
+    },
+    {
+      "id": "rag-03",
+      "question": "How much slower are cross-encoders than bi-encoders, and how is a reranker used despite that cost?",
+      "expected_answer": "Cross-encoders are 100-1000x slower than bi-encoders because they process each query-document pair jointly and their scores cannot be precomputed. The solution is to retrieve a larger candidate set (top-50 from hybrid search) and then rerank it with the cross-encoder to get the final top-5.",
+      "key_facts": [
+        "100-1000|100 to 1000|100x",
+        "50",
+        "5"
+      ],
+      "question_type": "factual",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "expected_pages": [
+        6
+      ]
+    },
+    {
+      "id": "rag-04",
+      "question": "What is HyDE and how much latency does it add?",
+      "expected_answer": "HyDE (Hypothetical Document Embeddings) generates a hypothetical answer to the query, embeds that answer, and searches for real documents similar to it, because the hypothetical answer lies closer in embedding space to the real answer than the question does. It adds one LLM call before retrieval, increasing latency by 500-2000 ms.",
+      "key_facts": [
+        "hypothetical",
+        "500-2000|500 to 2000"
+      ],
+      "question_type": "definition",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "expected_pages": [
+        7
+      ]
+    },
+    {
+      "id": "rag-05",
+      "question": "What chunk sizes does parent-child chunking use for retrieval versus for the prompt?",
+      "expected_answer": "Small child chunks of 128 tokens are indexed for retrieval; when a child chunk is retrieved, its 512-token parent chunk is returned for the prompt. The child matches the query precisely while the parent gives the LLM enough context.",
+      "key_facts": [
+        "128",
+        "512"
+      ],
+      "question_type": "numeric",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "expected_pages": [
+        7
+      ]
+    },
+    {
+      "id": "rag-06",
+      "question": "What three metrics are used to evaluate a RAG system?",
+      "expected_answer": "Retrieval relevance (Recall@k: the share of relevant documents that appear in the top-k results), faithfulness (whether the generated answer is grounded in the retrieved documents), and answer correctness (whether the generated answer matches the expected answer, the end-to-end metric).",
+      "key_facts": [
+        "recall",
+        "faithfulness",
+        "correctness"
+      ],
+      "question_type": "list",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "expected_pages": [
+        8,
+        9
+      ]
+    },
+    {
+      "id": "rag-07",
+      "question": "What does the alpha parameter control in Weaviate hybrid search?",
+      "expected_answer": "Alpha controls the balance between keyword and vector search: 0.0 is pure keyword (BM25), 1.0 is pure vector, and 0.5 is equal weight. Most production systems use an alpha between 0.3 and 0.7.",
+      "key_facts": [
+        "bm25|keyword",
+        "vector"
+      ],
+      "question_type": "factual",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "expected_pages": [
+        17
+      ]
+    },
+    {
+      "id": "rag-08",
+      "question": "What is metadata filtering in RAG and what example query shows why it is needed?",
+      "expected_answer": "Metadata filtering narrows the corpus by attributes such as date, source, category, author or language before running vector search, which reduces the search space and prevents irrelevant results. For \"What changed in the security policy last month?\" only documents from the last 30 days in the security category should be searched; without the filter a semantically similar 2-year-old security document might be retrieved.",
+      "key_facts": [
+        "30 days|last month",
+        "category|date|source"
+      ],
+      "question_type": "conceptual",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "expected_pages": [
+        8
+      ]
+    },
+    {
+      "id": "cross-01",
+      "question": "How is the probability of a whole word or token sequence decomposed in both the n-gram chapter and the large language model notes?",
+      "expected_answer": "Both use the chain rule of probability to write the joint probability as a product of conditionals: P(w1:n) = P(w1) P(w2|w1) ... P(wn|w1:n-1). The n-gram chapter then approximates each conditional using only the last few words (the Markov assumption), while the LLM notes model each conditional p(xt | x1..xt-1) with a parameterized autoregressive Transformer, because the full distribution has an astronomically large support.",
+      "key_facts": [
+        "chain rule",
+        "markov|last few words|previous word",
+        "transformer|autoregressive"
+      ],
+      "question_type": "cross_document",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            3
+          ]
+        },
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            2
+          ]
+        }
+      ],
+      "expected_pages": [
+        2,
+        3
+      ]
+    },
+    {
+      "id": "oos-01",
+      "question": "What discount value does Modified Interpolated Kneser-Ney smoothing subtract from each n-gram count?",
+      "expected_answer": "Not answerable from the documents. The n-gram chapter only mentions Modified Interpolated Kneser-Ney by name in its historical notes and gives no formula or discount value, so the system should refuse rather than answer.",
+      "key_facts": [],
+      "question_type": "unanswerable",
+      "evidence": [],
+      "expected_pages": []
+    },
+    {
+      "id": "oos-02",
+      "question": "What is the company policy on employee vacation in Miami?",
+      "expected_answer": "Not answerable from the documents. None of the three documents discuss this, so the system should refuse rather than answer.",
+      "key_facts": [],
+      "question_type": "unanswerable",
+      "evidence": [],
+      "expected_pages": []
+    },
+    {
+      "id": "oos-03",
+      "question": "What learning rate and batch size were used to pretrain Qwen3.5?",
+      "expected_answer": "Not answerable from the documents. The LLM notes mention Qwen3.5 only for its vocabulary size and give no training hyperparameters, so the system should refuse rather than answer.",
+      "key_facts": [],
+      "question_type": "unanswerable",
+      "evidence": [],
+      "expected_pages": []
+    },
+    {
+      "id": "oos-04",
+      "question": "What was the perplexity of a 4-gram model on the Wall Street Journal test set?",
+      "expected_answer": "Not answerable from the documents. The n-gram chapter reports WSJ perplexity only for unigram, bigram and trigram models, so the system should refuse rather than answer.",
+      "key_facts": [],
+      "question_type": "unanswerable",
+      "evidence": [],
+      "expected_pages": []
+    },
+    {
+      "id": "oos-05",
+      "question": "What is the formula for rotary positional embeddings (RoPE)?",
+      "expected_answer": "Not answerable from the documents. The LLM notes name rotary positional embeddings but explicitly leave positional embeddings for a future revision and give no formula, so the system should refuse rather than answer.",
+      "key_facts": [],
+      "question_type": "unanswerable",
+      "evidence": [],
+      "expected_pages": []
+    },
+    {
+      "id": "oos-06",
+      "question": "How many total parameters does DeepSeek-V3 have?",
+      "expected_answer": "Not answerable from the documents. The LLM notes give only the number of routed, active and shared experts in DeepSeek-V3's MoE layers, not its parameter count, so the system should refuse rather than answer.",
+      "key_facts": [],
+      "question_type": "unanswerable",
+      "evidence": [],
+      "expected_pages": []
+    },
+    {
+      "id": "oos-07",
+      "question": "What Recall@5 score did hybrid search achieve on the sample documents in the advanced RAG lesson?",
+      "expected_answer": "Not answerable from the documents. The lesson asks the reader to measure Recall@3, Recall@5 and Recall@10 as an exercise but reports no results, so the system should refuse rather than answer.",
+      "key_facts": [],
+      "question_type": "unanswerable",
+      "evidence": [],
+      "expected_pages": []
+    }
+  ]
+}

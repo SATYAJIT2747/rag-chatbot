@@ -13,14 +13,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.config import RAGConfig, get_system_device_info
 from src.models import ModelRegistry
-from src.document_loader import (
-    ensure_sample_pdf,
-    load_pdf,
-    extract_pages,
-    ocr_page,
-    build_documents,
-    build_page_map
-)
+from src.document_loader import ensure_sample_pdf, load_and_preprocess_pdf
 from src.indexer import (
     chunk_documents,
     build_embeddings,
@@ -29,6 +22,9 @@ from src.indexer import (
 )
 from src.pipeline import RAGPipeline
 from src.evaluator import DEFAULT_EVAL_SUITE, evaluate_retrieval_suite
+
+# Set RAG_LLM_BACKEND=local to generate with the llama-server model instead of Gemini
+USE_LOCAL_LLM = os.getenv("RAG_LLM_BACKEND", "gemini").lower() == "local"
 
 # Set Streamlit page config
 st.set_page_config(
@@ -87,6 +83,9 @@ st.markdown("""
 @st.cache_resource(show_spinner=False)
 def load_config() -> RAGConfig:
     cfg = RAGConfig()
+    if USE_LOCAL_LLM:
+        from local_llm.pipeline import build_local_config
+        cfg = build_local_config(cfg)
     ensure_sample_pdf(cfg.pdf_path)
     return cfg
 
@@ -100,6 +99,9 @@ def get_model_registry() -> ModelRegistry:
     cfg = load_config()
     dev_info = get_device()
     registry = ModelRegistry(cfg, device=dev_info["device"])
+    if USE_LOCAL_LLM:
+        from local_llm.llm_client import client_from_env
+        registry.llm_model = client_from_env(temperature=cfg.llm_temperature, max_tokens=cfg.llm_max_new_tokens)
     return registry
 
 @st.cache_resource(show_spinner=False)
@@ -108,13 +110,8 @@ def process_and_index_document(pdf_path: str, force_rebuild: bool = False):
     cfg = load_config()
     dev_info = get_device()
     
-    raw_doc = load_pdf(pdf_path)
-    extracted = extract_pages(raw_doc, pdf_path)
-    processed = [ocr_page(p, raw_doc) for p in extracted]
-    raw_doc.close()
-    
-    docs = build_documents(processed)
-    page_map = build_page_map(docs)
+    # Goes through the OCR disk cache, so a scanned PDF is only OCR'd once
+    docs, page_map = load_and_preprocess_pdf(pdf_path)
     chunks = chunk_documents(docs, chunk_size=cfg.chunk_size, chunk_overlap=cfg.chunk_overlap)
     
     embeddings = build_embeddings(cfg.embedding_model_id, dev_info["device"])
@@ -138,6 +135,9 @@ config = load_config()
 device_info = get_device()
 registry = get_model_registry()
 
+# Shown in the UI so it is always clear which model is answering
+LLM_LABEL = f"{config.llm_model_id} ({'local llama-server' if USE_LOCAL_LLM else 'Gemini API'})"
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "current_pdf_path" not in st.session_state:
@@ -157,6 +157,9 @@ if "index_data" not in st.session_state or st.session_state.get("need_reindex", 
 
 index_data = st.session_state.index_data
 
+# The pipeline hashes config.pdf_path to scope the response cache, so it must track the uploaded document
+config.pdf_path = st.session_state.current_pdf_path
+
 pipeline = RAGPipeline(
     config=config,
     registry=registry,
@@ -171,6 +174,7 @@ pipeline = RAGPipeline(
 with st.sidebar:
     st.title("📄 Advanced RAG")
     st.caption(f"Device: **{device_info['device'].upper()}** ({device_info['gpu_name']})")
+    st.caption(f"LLM: **{LLM_LABEL}**")
     
     # Main Navigation
     page = st.radio(
@@ -287,7 +291,7 @@ if page == "💬 Chat":
             if use_reranker:
                 status_container.write("⚖️ Scoring top candidates with Cross-Encoder (BAAI/bge-reranker-base)...")
                 
-            status_container.write("🧠 Generating grounded answer with Gemini LLM...")
+            status_container.write(f"🧠 Generating grounded answer with {LLM_LABEL}...")
             
             try:
                 response = pipeline.run(
@@ -559,7 +563,9 @@ elif page == "📊 Evaluation":
             st.session_state.eval_results = eval_res
             st.success("Evaluation complete!")
             
-    if st.session_state.eval_results:
+    if st.session_state.eval_results and not st.session_state.eval_results["methods"]:
+        st.warning("No gold questions could be scored for this document. It is either not covered by the gold dataset or has no extractable text.")
+    elif st.session_state.eval_results:
         res = st.session_state.eval_results
         st.markdown(f"### Benchmark Results ({res['total_queries']} Ground-Truth Queries)")
         

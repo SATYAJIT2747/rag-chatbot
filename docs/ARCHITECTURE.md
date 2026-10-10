@@ -15,7 +15,7 @@ This document provides a detailed breakdown of the system architecture, flow, co
 ### 1. 📄 100% Local PDF Ingestion Pipeline
 - **Upload & Parsing:** PDF documents (including slides, papers, tables, and scanned documents) are ingested locally using **PyMuPDF (`fitz`)**.
 - **Ligature Decoding:** Proprietary font PUA mappings and Unicode ligatures (`fi`, `fl`, `ffi`, `ffl`) are decoded into clean standard text strings.
-- **Local OCR Engine:** If a page contains sparse or scanned content, **PyTesseract** performs local optical character recognition. **Zero external LLM API calls** are made during document scanning and indexing.
+- **Local OCR Engine:** If a page contains sparse or scanned content, **PyTesseract** or **RapidOCR** (whichever is installed) performs local optical character recognition, and the result is cached on disk per PDF. **Zero external LLM API calls** are made during document scanning and indexing.
 - **Chunking Strategy:** Parent-Child chunking partitions raw page text into smaller child chunks (for vector search precision) while preserving parent page context.
 
 ---
@@ -31,15 +31,16 @@ This document provides a detailed breakdown of the system architecture, flow, co
 - **Dense Vector Search:** Uses `BAAI/bge-small-en-v1.5` over a local **FAISS** index for conceptual similarity.
 - **Sparse Keyword Search:** Uses **BM25Okapi** with exact token matching for technical terms, part numbers, and abbreviations.
 - **Reciprocal Rank Fusion (RRF):** Fuses dense and sparse candidate rankings without score normalization ($k=60$).
-- **Cross-Encoder Reranker:** Evaluates top-20 fused candidates through `BAAI/bge-reranker-base` full cross-attention to isolate the top-5 most relevant context chunks.
+- **Cross-Encoder Reranker:** Scores the first 10 of the 20 fused candidates through `BAAI/bge-reranker-base` full cross-attention and keeps the top 5 as context chunks.
+- **Answer LLM:** Gemini Flash-Lite through the API by default, or a local Qwen3.5 GGUF model served by llama.cpp's `llama-server` (`RAG_LLM_BACKEND=local`). Both use the same prompt and guardrails.
 
 ---
 
 ### 4. 🛡️ Modular Security & Quality Guardrails
 - **Input Guardrails:** Enforces maximum query length (`MAX_QUERY_LENGTH = 2000`) and blocks empty / whitespace-only queries. Deterministic regex pattern matching intercepts prompt injection and system override attempts.
 - **PDF Scope Guard:** Reuses Cross-Encoder candidate scores ($threshold = -4.0$) to block out-of-scope queries before LLM prompting without additional latency.
-- **Parent Context Expansion:** Injects full parent page text for top reranked chunks into the LLM prompt.
-- **Output Grounding Guard:** Performs n-gram and numeric overlap checks between generated answers and retrieved PDF context to prevent hallucination.
+- **Parent Context Expansion:** Injects full parent page text for top reranked chunks into the LLM prompt, up to 4000 characters.
+- **Output Grounding Guard:** Requires every number in the answer to appear in the retrieved context and at least 30% of the answer's keywords to do so. A failing answer is replaced with the standard refusal and is not cached.
 
 ---
 

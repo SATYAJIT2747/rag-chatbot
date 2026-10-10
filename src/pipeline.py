@@ -491,8 +491,10 @@ class RAGPipeline:
             grounding_status=grounding_status
         )
         
-        # Write to Exact & Semantic Cache ONLY if request was grounded and in scope
-        if enable_cache and guardrail_status == "allowed":
+        # Write to Exact & Semantic Cache ONLY if request was grounded and in scope.
+        # Refusals are not cached so a rephrased (or re-indexed) question gets a fresh attempt.
+        is_refusal = final_answer.startswith("The provided document does not contain enough information")
+        if enable_cache and guardrail_status == "allowed" and not is_refusal:
             if query_emb is None:
                 try:
                     embedder = self.registry.load_embedding_model()
