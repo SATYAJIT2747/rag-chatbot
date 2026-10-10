@@ -21,6 +21,7 @@ from src.indexer import (
     build_bm25
 )
 from src.pipeline import RAGPipeline
+from src.memory import recent_turns, condense_question, same_question
 from src.evaluator import DEFAULT_EVAL_SUITE, evaluate_retrieval_suite
 
 # Set RAG_LLM_BACKEND=local to generate with the llama-server model instead of Gemini
@@ -197,6 +198,8 @@ with st.sidebar:
                 st.session_state.index_data = process_and_index_document(save_path, force_rebuild=True)
                 st.session_state.latest_debug_payload = None
                 st.session_state.eval_results = None
+                # The chat (and its memory) belongs to the previous document
+                st.session_state.messages = []
             st.success("🟢 Document Ready")
             st.rerun()
             
@@ -215,6 +218,8 @@ with st.sidebar:
     use_reranker = st.checkbox("Cross-Encoder Reranker", value=True)
     use_parent_ctx = st.checkbox("Parent Context", value=True)
     
+    use_memory = st.checkbox("Conversation Memory (this session)", value=True,
+                             help="Rewrites follow-up questions using the last 3 turns of this chat. Cleared on refresh.")
     enable_cache_ui = st.checkbox("Enable Response Cache", value=getattr(config, "enable_cache", True))
     config.enable_cache = enable_cache_ui
     
@@ -249,6 +254,8 @@ if page == "💬 Chat":
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if msg.get("standalone") and not same_question(msg["standalone"], msg["content"]):
+                st.caption(f"↪️ Interpreted as: {msg['standalone']}")
             if msg.get("cache_type"):
                 ctype = msg["cache_type"]
                 if ctype == "exact":
@@ -285,6 +292,17 @@ if page == "💬 Chat":
             ret_mode = "hybrid" if is_hybrid else ("dense" if is_dense else "bm25")
             use_qr = "Query Rewrite" in mode_selection
             
+            # Session memory: a follow-up is rewritten into a standalone question before it reaches the pipeline.
+            # Queries the input guardrails would block are passed through untouched so the pipeline rejects them.
+            search_query = user_query
+            history_turns = recent_turns(st.session_state.messages[:-1]) if use_memory else []
+            if history_turns and pipeline.guardrails.check_input(user_query)[0]:
+                status_container.write("🧩 Resolving follow-up from this chat's history...")
+                search_query = condense_question(user_query, history_turns, registry)
+                st.session_state.messages[-1]["standalone"] = search_query
+                if not same_question(search_query, user_query):
+                    status_container.write(f"↪️ Interpreted as: *{search_query}*")
+
             status_container.write("🔍 Checking Exact & Semantic Cache...")
             time.sleep(0.05)
             
@@ -295,7 +313,7 @@ if page == "💬 Chat":
             
             try:
                 response = pipeline.run(
-                    query=user_query,
+                    query=search_query,
                     retrieval_mode=ret_mode,
                     use_query_rewrite=use_qr,
                     use_reranker=use_reranker,
@@ -314,6 +332,8 @@ if page == "💬 Chat":
                     status_container.update(label="✅ Answer Generated!", state="complete", expanded=False)
                 
                 # Display Assistant Answer
+                if not same_question(search_query, user_query):
+                    st.caption(f"↪️ Interpreted as: {search_query}")
                 st.markdown(response["answer"])
                 
                 if cache_status == "exact":

@@ -20,14 +20,22 @@ This document provides a detailed breakdown of the system architecture, flow, co
 
 ---
 
-### 2. ⚡ Dual-Tier Response Caching Layer
+### 2. 🧩 Session Memory & Follow-up Condensation
+- **Coreference Resolution**: Rewrites follow-up questions referencing previous turns (pronouns, implicit subjects) into a single standalone question using the last 3 turns (`MAX_HISTORY_TURNS = 3`).
+- **Context Budgeting (Direct Truncation)**: Past assistant answers are directly string-sliced to 500 characters (`MAX_ANSWER_CHARS = 500`) without LLM summarization to keep prompt building instant ($0ms$).
+- **Retriever Isolation**: Raw chat logs are **never fed to FAISS or BM25**. Only the resolved standalone question is passed to the retrieval pipeline, ensuring vector and keyword searches remain completely clean.
+- **Diff Normalization (`same_question`)**: Normalizes case, spacing, and punctuation to display `↪️ Interpreted as:` only when a meaningful rewrite occurred.
+
+---
+
+### 3. ⚡ Dual-Tier Response Caching Layer
 - **Exact Hash Match (`0ms LLM, $0`):** Query strings are normalized and SHA256 hashed. Matches return pre-computed cited answers instantly.
 - **Semantic Vector Cache (`0ms LLM, $0`):** Dense query embedding vectors are queried against an isolated SQLite cache index. Queries with cosine similarity $\ge 0.82$ short-circuit the LLM call.
 - **SHA256 Document Versioning:** Cache entries are strictly tied to the PDF content hash, ensuring cache safety across document updates.
 
 ---
 
-### 3. 🔍 Hybrid Retrieval & Reranking Engine
+### 4. 🔍 Hybrid Retrieval & Reranking Engine
 - **Dense Vector Search:** Uses `BAAI/bge-small-en-v1.5` over a local **FAISS** index for conceptual similarity.
 - **Sparse Keyword Search:** Uses **BM25Okapi** with exact token matching for technical terms, part numbers, and abbreviations.
 - **Reciprocal Rank Fusion (RRF):** Fuses dense and sparse candidate rankings without score normalization ($k=60$).
@@ -36,14 +44,14 @@ This document provides a detailed breakdown of the system architecture, flow, co
 
 ---
 
-### 4. 🛡️ Modular Security & Quality Guardrails
+### 5. 🛡️ Modular Security & Quality Guardrails
 - **Input Guardrails:** Enforces maximum query length (`MAX_QUERY_LENGTH = 2000`) and blocks empty / whitespace-only queries. Deterministic regex pattern matching intercepts prompt injection and system override attempts.
 - **PDF Scope Guard:** Reuses Cross-Encoder candidate scores ($threshold = -4.0$) to block out-of-scope queries before LLM prompting without additional latency.
-- **Parent Context Expansion:** Injects full parent page text for top reranked chunks into the LLM prompt, up to 4000 characters.
+- **Parent Context Expansion:** Injects full parent page text for top reranked chunks into the LLM prompt, up to 12000 characters (about three pages).
 - **Output Grounding Guard:** Requires every number in the answer to appear in the retrieved context and at least 30% of the answer's keywords to do so. A failing answer is replaced with the standard refusal and is not cached.
 
 ---
 
-### 5. 📊 Cost Observability & Telemetry Logging
+### 6. 📊 Cost Observability & Telemetry Logging
 - **SQLite Database:** Logs request metrics, latencies, exact/semantic cache hits, guardrail events, token counts, and cost breakdown (`artifacts/rag_metrics.db`).
 - **LangSmith Integration:** Full OpenTelemetry tracing with dynamic tags (`pdf-rag`, `cache-hit`, `cache-miss`) and metadata attributes.

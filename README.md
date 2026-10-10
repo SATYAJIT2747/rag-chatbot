@@ -15,6 +15,12 @@ A complete, production-ready Advanced Retrieval-Augmented Generation (RAG) syste
                                     │
                                     ▼
                          ┌────────────────────┐
+                         │   SESSION MEMORY   │  Follow-up + last 3 turns ──► standalone question
+                         │ (Follow-up Rewrite)│  (skipped on the first question of a chat)
+                         └──────────┬─────────┘
+                                    │
+                                    ▼
+                         ┌────────────────────┐
                          │  INPUT GUARDRAILS  │ ── Blocked ──► Return Safety Block Message
                          │ (Length, Injection)│
                          └──────────┬─────────┘
@@ -54,7 +60,7 @@ A complete, production-ready Advanced Retrieval-Augmented Generation (RAG) syste
                                 Pass │
                                      ▼
                           PARENT CONTEXT EXPANSION
-                     (Full Page Text, up to 4000 chars)
+                    (Full Page Text, up to 12000 chars)
                                      │
                                      ▼
                            GENERATION LLM & PROMPT
@@ -98,7 +104,7 @@ pdf_rag_bot/
 │   ├── sample_document.pdf        # Default knowledge-base PDF (scanned Advanced RAG lesson, 23 pages)
 │   ├── N gram.pdf                 # N-gram language models chapter (26 pages)
 │   ├── build_llm_lect_notes.pdf   # Large language models lecture notes (18 pages)
-│   └── gold_dataset.json          # 35 gold questions with answers, evidence pages and key facts
+│   └── gold_dataset.json          # 35 gold questions (answers, evidence pages, key facts) + 15 follow-up conversations
 │
 ├── src/
 │   ├── __init__.py                # Module exports
@@ -110,6 +116,7 @@ pdf_rag_bot/
 │   ├── generation.py              # Parent context expansion, prompt construction & system prompt hardening
 │   ├── caching.py                 # Exact & Semantic Cache Manager (SQLite + SHA256 document hashing)
 │   ├── guardrails.py              # Modular Guardrails Layer (Length, Injection, Scope, Grounding)
+│   ├── memory.py                  # Session memory: rewrites follow-ups into standalone questions
 │   ├── metrics.py                 # Persistent request metrics, cost calculation & security telemetry logger
 │   ├── evaluator.py               # Loads the gold dataset and runs the retrieval benchmark for the app / CLI
 │   └── pipeline.py                # High-level RAGPipeline wrapped with caching, guardrails & LangSmith tracing
@@ -119,6 +126,7 @@ pdf_rag_bot/
 │   ├── retrieval_metrics.py       # Hit@k, Recall@k, MRR@k, nDCG@k
 │   ├── retrieval_ablation.py      # Stage 1: BM25 vs Dense vs Hybrid vs Reranker, by chunk size
 │   ├── model_comparison.py        # Stage 2: answer models on identical retrieved context
+│   ├── memory_eval.py             # Session memory: follow-up retrieval with memory off vs on
 │   └── rate_limit.py              # Per-minute throttle for API models
 │
 ├── local_llm/                     # Local LLM backend (llama.cpp llama-server, Qwen3.5)
@@ -130,7 +138,8 @@ pdf_rag_bot/
 │
 ├── tests/
 │   ├── test_caching_and_metrics.py# Caching & metrics unit tests (5 tests)
-│   └── test_guardrails.py         # Security & guardrails test suite (11 tests)
+│   ├── test_guardrails.py         # Security & guardrails test suite (11 tests)
+│   └── test_memory.py             # Session memory unit tests (6 tests)
 │
 └── artifacts/                     # Generated at run time, not committed
     ├── rag_cache.db               # SQLite exact & semantic response cache database
@@ -337,9 +346,68 @@ The gold page was present in the context sent to the model for 25 of 28 answerab
 - **Gemini is about 3 times faster**: 1.23 s per answer against 3.34 s and 4.02 s, and its answers are shorter (73 tokens versus about 105). It ran on the free tier at no cost; at the per-token rates configured in `src/config.py` the same 33 calls would have cost about $0.003.
 - **All seven unanswerable questions were refused by every model.** The scope guard blocked the two off-topic ones before generation; the five near-miss questions were refused by the model itself.
 - **The grounding guard is the largest source of lost answers.** It replaced 2 to 4 correct answers per model with a refusal, lowering key-fact recall by 0.07 to 0.14. It treats any number in the answer that is absent from the context as fabricated, so it rejects numbered lists, intermediate arithmetic (`1/61 + 1/65`), and numbers the PDF extraction garbled (`0.9` appears as `0S9` in the extracted lecture notes).
-- **The context budget is the second.** Retrieval finds a gold page in the top 5 for every question, but the 4,000-character parent-page context usually holds one or two pages, so the gold page reached the model for only 25 of 28 questions. The cross-document question cannot be answered fully because pages from both PDFs never fit together.
+- **The context budget is the second.** Retrieval finds a gold page in the top 5 for every question, but the 4,000-character parent-page context used in this run usually holds one or two pages, so the gold page reached the model for only 25 of 28 questions. The cross-document question cannot be answered fully because pages from both PDFs never fit together.
+
+**Fix applied after this run: context budget raised from 4,000 to 12,000 characters.** Measured on the same reranked chunks, without calling a model:
+
+| Context budget | Questions with a gold page in the context | Average context size |
+|---|---|---|
+| 4,000 chars (used for the table above) | 25/28 | 2,824 chars |
+| 8,000 chars | 27/28 | 6,280 chars |
+| **12,000 chars (current default)** | **28/28** | 8,226 chars |
+
+The model-comparison table above was measured at the old 4,000-character budget and has not been rerun at 12,000.
 
 **Limits of this result.** One run per model on 28 answerable questions, so one question is worth about 3.6 points. Key-fact recall is a strict string match and has no judge model behind it; it can miss a correct paraphrase. Refusals are detected by pattern on the opening of the answer.
+
+---
+
+## 🧩 Conversation Memory (Current Session)
+
+Without memory every question is answered in isolation, so a follow-up such as "How much GPU memory does it need per head?" is searched literally and "it" matches nothing. The app now keeps short-term memory for the current chat:
+
+1. The last 3 question-and-answer turns of the chat are kept in the Streamlit session (`MAX_HISTORY_TURNS = 3`).
+2. Before a follow-up reaches the pipeline, one LLM call rewrites it into a standalone question using those turns ("How much GPU memory does the KV cache need per attention head?"). A first question has no history, so the step is skipped and no call is made.
+3. The standalone question is passed to the unchanged pipeline, so retrieval, the guardrails and the response cache all receive a complete question. No cache code was modified.
+4. The chat shows `Interpreted as: ...` under the question, so the rewrite is always visible.
+
+The rewrite lives in [`src/memory.py`](src/memory.py) and can be switched off with the **Conversation Memory** checkbox in the sidebar.
+
+### Implementation & Safety Mechanics
+
+- **Coreference Chaining**: When follow-ups are chained consecutively, each turn stores the resolved `standalone` question into session state rather than the raw user text. Subsequent follow-ups use the resolved forms, allowing multi-turn reference chains to resolve accurately.
+- **Context Budgeting (Direct Truncation, Not LLM Summarization)**: Historical assistant answers are directly string-sliced to their first 500 characters (`MAX_ANSWER_CHARS = 500`) rather than running through an LLM summarizer. This keeps prompt construction instant and token consumption minimal.
+- **Retriever Isolation (No Chat Logs in Vector/BM25 Search)**: Historical chat dialogue is **never sent to FAISS or BM25**. Only the final, self-contained standalone question enters the retrieval pipeline, ensuring vector and keyword searches match PDF text cleanly without dialogue pollution.
+- **Diff Normalization (`same_question`)**: Normalizes strings by stripping whitespace, punctuation, and casing (`re.sub(r"[^a-z0-9]+", "", text.lower())`). If the LLM rewrite is functionally identical to the user query, the `Interpreted as:` badge is suppressed to avoid visual noise.
+- **Runaway & Error Fallbacks**:
+  - If the rewrite LLM call fails or times out, the exception is caught and the question falls back to the raw input as typed.
+  - If the LLM produces an empty string or a runaway hallucinated expansion (`len(standalone) > 3 * len(question) + 300`), the rewrite is discarded in favor of the raw question.
+- **Guardrail Pre-Check**: Queries flagged by input security guardrails (e.g., prompt injection attempts) bypass rewrite LLM calls entirely and pass through untouched so the pipeline's security layer blocks them cleanly.
+
+**Measured effect.** The gold dataset has 13 follow-up questions that depend on an earlier turn, plus 2 controls that are already standalone. Each is retrieved with hybrid + reranker (chunk size 512) as typed, after the memory rewrite, and with a hand-written standalone question:
+
+| Condition (13 follow-ups) | Hit@1 | Hit@5 | MRR@10 | Rewrite latency |
+|---|---|---|---|---|
+| Memory off (follow-up as typed) | 0.615 | 0.769 | 0.673 | none |
+| Memory on, local Qwen3.5-4B Q6_K | 0.692 | 0.923 | 0.819 | 0.83 s |
+| **Memory on, Gemini Flash-Lite** | **0.692** | **1.000** | **0.846** | 1.07 s |
+| Hand-written standalone question | 0.692 | 0.923 | 0.808 | none |
+
+- **Memory lifts follow-up retrieval to the level of a hand-written question.** The gold page reaches the top 5 for 12 or 13 of 13 follow-ups instead of 10, and MRR@10 rises from 0.673 to 0.819 (Qwen) and 0.846 (Gemini).
+- **Already-standalone questions are left alone.** Both controls came back unchanged from both models and kept rank 1.
+- **Single-question results are unaffected.** The rewrite is skipped when there is no history, and the retrieval ablation gives the same numbers as before the change.
+- **It costs about one second per follow-up**, and nothing on a first question.
+
+```powershell
+..\.venv\Scripts\python.exe -m eval.memory_eval --models Qwen3.5-4B-Base-Q6_K gemini-flash-lite-latest
+```
+
+**Limits.**
+- **No long-term memory.** History lives in the browser session only. It is cleared on refresh, on restart, when the chat is cleared, and when a new PDF is uploaded. Nothing carries over between sessions.
+- **Only the last 3 turns are used**, with no summarization, so a reference to something said earlier than that will not resolve.
+- **The rewrite can pick the wrong referent.** For "What is the special case of it that uses natural-language task descriptions?" both models resolved "it" to the loss mask instead of supervised finetuning.
+- **Small test set**: 13 follow-ups, so one question is worth about 8 points.
+- **App only.** The CLI (`main.py`) and the evaluation scripts answer single questions.
 
 ---
 

@@ -35,7 +35,8 @@ class RAGConfig:
     
     # Generation & Context
     return_parent_context: bool = True
-    max_parent_context_chars: int = 4000
+    # About 3 full pages. At 4000 the page holding the answer was cut off for 3 of 28 gold questions.
+    max_parent_context_chars: int = 12000
     llm_max_new_tokens: int = 512
     llm_temperature: float = 0.1
     

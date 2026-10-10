@@ -1,5 +1,5 @@
 {
-  "description": "Gold evaluation set for the PDF RAG bot. 35 items: 27 single-document, 1 cross-document, 7 unanswerable. Page numbers are 1-based PDF page indices (same as metadata['page'] from document_loader.extract_pages), not the printed page numbers. key_facts lists what a correct answer must contain; '|' separates accepted alternatives.",
+  "description": "Gold evaluation set for the PDF RAG bot. 35 items: 27 single-document, 1 cross-document, 7 unanswerable. Page numbers are 1-based PDF page indices (same as metadata['page'] from document_loader.extract_pages), not the printed page numbers. key_facts lists what a correct answer must contain; '|' separates accepted alternatives. conversations holds follow-up questions for testing session memory: history_ids name the gold items whose question and expected answer form the earlier turns.",
   "documents": [
     "N gram.pdf",
     "build_llm_lect_notes.pdf",
@@ -677,6 +677,309 @@
       "question_type": "unanswerable",
       "evidence": [],
       "expected_pages": []
+    }
+  ],
+  "conversations": [
+    {
+      "id": "mem-01",
+      "history_ids": [
+        "ngram-06"
+      ],
+      "follow_up": "How many words were they trained on?",
+      "expected_standalone": "How many words were the unigram, bigram and trigram models trained on for the Wall Street Journal perplexity comparison?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "expected_pages": [
+        10
+      ]
+    },
+    {
+      "id": "mem-02",
+      "history_ids": [
+        "ngram-08"
+      ],
+      "follow_up": "Does it produce a true probability distribution?",
+      "expected_standalone": "Does stupid backoff produce a true probability distribution?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "expected_pages": [
+        18
+      ]
+    },
+    {
+      "id": "mem-03",
+      "history_ids": [
+        "ngram-07"
+      ],
+      "follow_up": "What is the alternative that adds a fractional count instead?",
+      "expected_standalone": "What is the alternative to add-one (Laplace) smoothing that adds a fractional count instead of one?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "expected_pages": [
+        16
+      ]
+    },
+    {
+      "id": "mem-04",
+      "history_ids": [
+        "ngram-01"
+      ],
+      "follow_up": "How does that generalize beyond two words?",
+      "expected_standalone": "How does the bigram Markov assumption generalize to trigrams and n-grams?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "expected_pages": [
+        3
+      ]
+    },
+    {
+      "id": "mem-05",
+      "history_ids": [
+        "llm-06"
+      ],
+      "follow_up": "What is the main appeal of that kind of layer?",
+      "expected_standalone": "What is the main appeal of a Mixture-of-Experts (MoE) layer?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "expected_pages": [
+        15
+      ]
+    },
+    {
+      "id": "mem-06",
+      "history_ids": [
+        "llm-05"
+      ],
+      "follow_up": "How much GPU memory does it need per head?",
+      "expected_standalone": "How much GPU memory does the KV cache need per attention head?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "expected_pages": [
+        12
+      ]
+    },
+    {
+      "id": "mem-07",
+      "history_ids": [
+        "llm-02"
+      ],
+      "follow_up": "Are they applied at training time or at inference time?",
+      "expected_standalone": "Are top-k sampling and top-p (nucleus) sampling applied at training time or at inference time?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "expected_pages": [
+        5
+      ]
+    },
+    {
+      "id": "mem-08",
+      "history_ids": [
+        "llm-07"
+      ],
+      "follow_up": "What is the special case of it that uses natural-language task descriptions?",
+      "expected_standalone": "What is the special case of supervised finetuning that uses natural-language task descriptions?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "expected_pages": [
+        18
+      ]
+    },
+    {
+      "id": "mem-09",
+      "history_ids": [
+        "rag-04"
+      ],
+      "follow_up": "Which paper introduced it?",
+      "expected_standalone": "Which paper introduced HyDE (Hypothetical Document Embeddings)?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "expected_pages": [
+        20
+      ]
+    },
+    {
+      "id": "mem-10",
+      "history_ids": [
+        "rag-01"
+      ],
+      "follow_up": "Since when has it been the backbone of search engines?",
+      "expected_standalone": "Since when has BM25 been the backbone of search engines?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "expected_pages": [
+        4
+      ]
+    },
+    {
+      "id": "mem-11",
+      "history_ids": [
+        "rag-03"
+      ],
+      "follow_up": "Which of them runs on CPU for prototyping?",
+      "expected_standalone": "Which reranking model runs on CPU for prototyping?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "expected_pages": [
+        6
+      ]
+    },
+    {
+      "id": "mem-12",
+      "history_ids": [
+        "rag-05"
+      ],
+      "follow_up": "What sizes does the lesson's code use for it by default?",
+      "expected_standalone": "What default parent and child sizes does the lesson's parent-child chunking code use?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "expected_pages": [
+        14
+      ]
+    },
+    {
+      "id": "mem-13",
+      "history_ids": [
+        "llm-05",
+        "llm-06"
+      ],
+      "follow_up": "Going back to the cache, what gets appended to it at each step?",
+      "expected_standalone": "What gets appended to the KV cache at each generation step?",
+      "kind": "follow_up",
+      "evidence": [
+        {
+          "source": "build_llm_lect_notes.pdf",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "expected_pages": [
+        11
+      ]
+    },
+    {
+      "id": "mem-14",
+      "history_ids": [
+        "ngram-06"
+      ],
+      "follow_up": "What are the default values of k1 and b in BM25?",
+      "expected_standalone": "What are the default values of k1 and b in BM25?",
+      "kind": "control",
+      "evidence": [
+        {
+          "source": "sample_document.pdf",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "expected_pages": [
+        5
+      ]
+    },
+    {
+      "id": "mem-15",
+      "history_ids": [
+        "llm-01"
+      ],
+      "follow_up": "How does stupid backoff work?",
+      "expected_standalone": "How does stupid backoff work?",
+      "kind": "control",
+      "evidence": [
+        {
+          "source": "N gram.pdf",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "expected_pages": [
+        18
+      ]
     }
   ]
 }
