@@ -319,44 +319,65 @@ The two Qwen files differ only in quantization, so that pair isolates the qualit
 
 `--rescore` re-scores the saved answers without calling any model, which is useful after editing `key_facts`.
 
-**Results (28 answerable + 7 unanswerable questions, one run per model):**
+**Results at the 12,000-character context budget (28 answerable + 7 unanswerable questions, one run per model):**
 
 | Metric | Qwen3.5-4B Q6_K | Qwen3.5-4B Q8_0 | Gemini Flash-Lite |
 |---|---|---|---|
-| Key-fact recall (final answer) | 0.762 | 0.786 | **0.804** |
-| All key facts present | 19/28 (68%) | 20/28 (71%) | **22/28 (79%)** |
-| Key-fact recall before grounding guard | **0.905** | 0.893 | 0.875 |
-| Correct answers blocked by grounding guard | 4/28 | 3/28 | 2/28 |
-| Semantic similarity to reference | 0.830 | **0.844** | 0.824 |
-| Cites a gold page | 22/28 (79%) | 22/28 (79%) | 23/28 (82%) |
-| False refusal (answerable) | 5/28 | 4/28 | 5/28 |
-| Correct refusal (unanswerable) | 7/7 | 7/7 | 7/7 |
-| Avg LLM latency (s) | 3.34 | 4.02 | **1.23** |
-| p95 LLM latency (s) | 5.06 | 6.87 | **1.97** |
-| Tokens per second | 28.7 | 25.9 | 58.4 |
-| Avg output tokens | 101.8 | 108.1 | 72.6 |
+| Key-fact recall (final answer) | 0.869 | 0.857 | **0.940** |
+| All key facts present | 23/28 (82%) | 23/28 (82%) | **26/28 (93%)** |
+| Key-fact recall before grounding guard | **0.976** | 0.964 | **0.976** |
+| Correct answers blocked by grounding guard | 3/28 (11%) | 3/28 (11%) | **1/28 (4%)** |
+| Semantic similarity to reference | 0.844 | 0.848 | **0.873** |
+| Cites a gold page | 23/28 (82%) | 24/28 (86%) | **27/28 (96%)** |
+| False refusal (answerable) | 3/28 (11%) | 3/28 (11%) | **1/28 (4%)** |
+| Correct refusal (unanswerable) | 6/7 (86%)* | 6/7 (86%)* | **7/7 (100%)** |
+| Avg LLM latency (s) | 5.38 | 50.91** | **1.34** |
+| p95 LLM latency (s) | 8.40 | 88.22 | **1.97** |
+| Tokens per second | 24.7 | 2.7** | **66.7** |
+| Avg output tokens | 139.0 | 141.3 | 91.5 |
 | Cost for the run ($) | 0 (local) | 0 (local) | 0 (free tier) |
 
-The gold page was present in the context sent to the model for 25 of 28 answerable questions. Gemini's tokens per second includes network time.
+The gold page was present in the context sent to the model for 28 of 28 answerable questions. Gemini's tokens per second includes network time.
 
-**What the numbers show:**
+\* On `oos-05` (RoPE formula) both Qwen models answered that the document names RoPE but gives no formula, which is the right behaviour. They did not open with a refusal phrase the pattern-based detector recognises, so it is counted as a miss. No model invented an answer to any unanswerable question.
 
-- **The three models are equally good at reading the context.** Before the grounding guard, key-fact recall is 0.905, 0.893 and 0.875, a spread of one question. With 28 questions that is within noise.
-- **Q8 buys nothing over Q6 here.** Quality is the same, and Q8 is about 20% slower (4.02 s versus 3.34 s per answer) and its model file is about 1 GB larger. Q6_K is the better local choice on a 6 GB GPU.
-- **Gemini is about 3 times faster**: 1.23 s per answer against 3.34 s and 4.02 s, and its answers are shorter (73 tokens versus about 105). It ran on the free tier at no cost; at the per-token rates configured in `src/config.py` the same 33 calls would have cost about $0.003.
-- **All seven unanswerable questions were refused by every model.** The scope guard blocked the two off-topic ones before generation; the five near-miss questions were refused by the model itself.
-- **The grounding guard is the largest source of lost answers.** It replaced 2 to 4 correct answers per model with a refusal, lowering key-fact recall by 0.07 to 0.14. It treats any number in the answer that is absent from the context as fabricated, so it rejects numbered lists, intermediate arithmetic (`1/61 + 1/65`), and numbers the PDF extraction garbled (`0.9` appears as `0S9` in the extracted lecture notes).
-- **The context budget is the second.** Retrieval finds a gold page in the top 5 for every question, but the 4,000-character parent-page context used in this run usually holds one or two pages, so the gold page reached the model for only 25 of 28 questions. The cross-document question cannot be answered fully because pages from both PDFs never fit together.
+\*\* Q8_0 was more than 10 times slower in this run than at the 4,000-character budget (50.9 s against 4.0 s per answer). The cause was not measured. The most likely one is GPU memory pressure: the 4.5 GB Q8 file, its 8,192-token KV cache and the embedding and reranker models share a 6 GB GPU, and Windows moves the overflow to much slower shared system memory. Another process using the GPU at the same time would produce the same symptom. Q6_K (3.5 GB file) was not affected.
 
-**Fix applied after this run: context budget raised from 4,000 to 12,000 characters.** Measured on the same reranked chunks, without calling a model:
+### Before and after: 4,000 versus 12,000 character context budget
+
+The first run of this comparison used a 4,000-character parent-page context, which usually holds one or two pages. Retrieval found a gold page in the top 5 for every question, but the page did not always fit. Measured on the same reranked chunks, without calling a model:
 
 | Context budget | Questions with a gold page in the context | Average context size |
 |---|---|---|
-| 4,000 chars (used for the table above) | 25/28 | 2,824 chars |
+| 4,000 chars (first run) | 25/28 | 2,824 chars |
 | 8,000 chars | 27/28 | 6,280 chars |
 | **12,000 chars (current default)** | **28/28** | 8,226 chars |
 
-The model-comparison table above was measured at the old 4,000-character budget and has not been rerun at 12,000.
+The budget was raised to 12,000 and all three models were rerun on the same questions:
+
+| Metric (4,000 → 12,000) | Qwen3.5-4B Q6_K | Qwen3.5-4B Q8_0 | Gemini Flash-Lite |
+|---|---|---|---|
+| Key-fact recall (final answer) | 0.762 → 0.869 | 0.786 → 0.857 | 0.804 → 0.940 |
+| All key facts present (of 28) | 19 → 23 | 20 → 23 | 22 → 26 |
+| Key-fact recall before grounding guard | 0.905 → 0.976 | 0.893 → 0.964 | 0.875 → 0.976 |
+| Correct answers blocked by grounding guard | 4 → 3 | 3 → 3 | 2 → 1 |
+| Cites a gold page (of 28) | 22 → 23 | 22 → 24 | 23 → 27 |
+| False refusal (answerable, of 28) | 5 → 3 | 4 → 3 | 5 → 1 |
+| Correct refusal (unanswerable, of 7) | 7 → 6\* | 7 → 6\* | 7 → 7 |
+| Avg LLM latency (s) | 3.34 → 5.38 | 4.02 → 50.91\*\* | 1.23 → 1.34 |
+
+**What the numbers show:**
+
+- **The larger context improved every model.** Final key-fact recall rose by 0.07 to 0.14. The questions it fixed are the ones whose gold page had been cut off or pushed out: the KV cache (`llm-05`), PreNorm versus PostNorm (`llm-08`), HyDE latency (`rag-04`) and the three RAG metrics (`rag-06`).
+- **The three models are still equally good at reading the context.** Before the grounding guard, key-fact recall is 0.976, 0.964 and 0.976, a spread of less than one question.
+- **Gemini's lead in the final score comes from the grounding guard, not from better reading.** The guard blocked three correct answers from each Qwen model and one from Gemini; those two extra questions account for the gap between 0.940 and 0.869.
+- **Q8 buys nothing over Q6 here.** Quality is the same and the file is about 1 GB larger. At the 4,000 budget Q8 was 20% slower; in this run it was far slower (see \*\*). Q6_K is the better local choice on a 6 GB GPU.
+- **The larger context costs the local model time.** Prompts are about three times longer, and Q6_K went from 3.34 s to 5.38 s per answer. Gemini barely changed (1.23 s to 1.34 s) and stayed free on the free tier; at the per-token rates configured in `src/config.py` the run would have cost about $0.007 instead of $0.003.
+- **Unanswerable questions are still handled safely.** The scope guard blocked the two off-topic ones before generation and the five near-miss questions were declined by the model (see \* for the one the detector did not count).
+- **The grounding guard remains the largest source of lost answers.** It replaced 1 to 3 correct answers per model with a refusal, lowering key-fact recall by 0.04 to 0.11. It treats any number in the answer that is absent from the context as fabricated, so it rejects numbered lists, intermediate arithmetic (`1/61 + 1/65`), and numbers the PDF extraction garbled (`0.9` appears as `0S9` in the extracted lecture notes). It was not changed in this study.
+- **The cross-document question is still only partly answered** (0.33 to 0.67). Both source pages now reach the model and every model gives the chain rule for both documents, but none goes on to contrast the Markov approximation with the Transformer.
+
+The reports for both runs are written to `artifacts/eval/report/` (`model_comparison.md` and `model_comparison_ctx4000.md`); that folder is git-ignored, so rerun the command above to regenerate them.
 
 **Limits of this result.** One run per model on 28 answerable questions, so one question is worth about 3.6 points. Key-fact recall is a strict string match and has no judge model behind it; it can miss a correct paraphrase. Refusals are detected by pattern on the opening of the answer.
 
